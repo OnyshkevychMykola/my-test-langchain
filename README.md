@@ -1,0 +1,8 @@
+langchain>=0.2.10
+langchain-openai>=0.1.7
+langchain-community>=0.2.10
+chromadb>=0.5.0
+tiktoken>=0.7.0
+openai>=1.35.0
+streamlit>=1.33.0
+wikipedia
