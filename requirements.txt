@@ -9,3 +9,4 @@ wikipedia
 langchain_text_splitters>=1.1.0
 dotenv
 langchain_chroma>=1.1.0
+unstructured>=0.18.21
