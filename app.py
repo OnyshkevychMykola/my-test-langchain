@@ -3,8 +3,6 @@ from chains import answer_query
 from dotenv import load_dotenv
 load_dotenv()
 from langchain_community.chat_message_histories import StreamlitChatMessageHistory
-history = StreamlitChatMessageHistory()
-
 
 st.set_page_config(page_title="My Test Language Chain")
 
@@ -30,11 +28,15 @@ else:
 query = st.chat_input("Ask your question here...")
 
 if query:
+    history.add_user_message(query)
+
     with st.chat_message("user"):
         st.write(query)
 
     with st.spinner("Thinking..."):
-        answer = answer_query(query, st.session_state.session_id)
+        answer = answer_query(query)
+
+    history.add_ai_message(answer)
 
     with st.chat_message("assistant"):
         st.write(answer)
