@@ -13,6 +13,9 @@ if "session_id" not in st.session_state:
 
 history = StreamlitChatMessageHistory(key="chat_history")
 
+if st.button("🆕 New Chat"):
+    history.clear()
+
 if history.messages:
     st.header("📝 Chat history")
     for msg in history.messages:
