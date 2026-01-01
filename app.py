@@ -1,45 +1,40 @@
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+import base64
+import os
 import streamlit as st
-from chains import answer_query
 from dotenv import load_dotenv
 load_dotenv()
-from langchain_community.chat_message_histories import StreamlitChatMessageHistory
+def encode_image(image_file):
+    return base64.b64encode(image_file.read()).decode()
 
-st.set_page_config(page_title="My Test Language Chain")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+llm = ChatOpenAI(model="gpt-4o", api_key=OPENAI_API_KEY)
+prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", "You are a helpful assistant that can describe images."),
+        (
+            "human",
+            [
+                {"type": "text", "text": "{input}"},
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/jpeg;base64,""{image}",
+                        "detail": "low",
+                    },
+                },
+            ],
+        ),
+    ]
+)
 
-st.title("Just answering questions")
+chain = prompt | llm
 
-if "session_id" not in st.session_state:
-    st.session_state.session_id = st.session_state.get("run_id", "default-session")
+uploaded_file = st.file_uploader("Upload your image",type=["jpg","png"])
+question = st.text_input("Enter a question")
 
-history = StreamlitChatMessageHistory(key="chat_history")
-
-if st.button("🆕 New Chat"):
-    history.clear()
-
-if history.messages:
-    st.header("📝 Chat history")
-    for msg in history.messages:
-        if msg.type == "human":
-            with st.chat_message("user"):
-                st.write(msg.content)
-        else:
-            with st.chat_message("assistant"):
-                st.write(msg.content)
-else:
-    st.info("No chat history yet. Start by asking a question! 👇")
-
-query = st.chat_input("Ask your question here...")
-
-if query:
-    history.add_user_message(query)
-
-    with st.chat_message("user"):
-        st.write(query)
-
-    with st.spinner("Thinking..."):
-        answer = answer_query(query)
-
-    history.add_ai_message(answer)
-
-    with st.chat_message("assistant"):
-        st.write(answer)
+if question:
+    image=encode_image(uploaded_file)
+    response = chain.invoke({"input": question,"image":image})
+    st.write(response.content)
