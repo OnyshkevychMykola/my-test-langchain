@@ -47,15 +47,25 @@ Context:
 qa_chain = create_stuff_documents_chain(llm, rag_prompt)
 rag_chain = create_retrieval_chain(retriever, qa_chain)
 
-def medical_domain_guard(query: str) -> bool:
+def medical_domain_guard(query: str, history, max_messages: int = 5) -> bool:
+    context_messages = history.messages[-max_messages:] if history else []
+
+    dialogue = "\n".join(
+        f"{m.type}: {m.content}" for m in context_messages
+    )
+
     prompt = f"""
-Is the following user question related to medicine or health?
+You are a classifier.
+
+Determine whether the following conversation is related to medicine or health.
 
 Answer ONLY "yes" or "no".
 
-Question:
-{query}
+Conversation:
+{dialogue}
+user: {query}
 """
+
     result = llm.invoke(prompt)
     return "yes" in result.content.lower()
 
@@ -153,8 +163,8 @@ def answer_query(
     history,
     image_file=None,
 ):
-    # if not medical_domain_guard(query):
-    #     return MEDICAL_REFUSAL
+    if not medical_domain_guard(query, history):
+        return MEDICAL_REFUSAL
 
     if image_file is not None:
         image_b64 = image_to_base64(image_file)
