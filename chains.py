@@ -29,16 +29,14 @@ rag_prompt = ChatPromptTemplate.from_messages(
         ("system", """
 You are a medical information assistant.
 
-Use ONLY the provided context.
-If the information is not present → say:
+Use ONLY the provided context to answer the question.
+If the context does not contain enough information, respond with:
 "I don’t have enough reliable information to answer this."
 
-Do NOT:
-- diagnose
-- recommend treatment
-- suggest dosages
+Guidelines:
+- Use cautious, non-absolute language (e.g. "may", "can be associated with").
+- Do not invent or assume information beyond the context.
 
-Use cautious language.
 Context:
 {context}
         """),
@@ -86,10 +84,9 @@ def medical_image_tool(image_b64: str, question: str) -> str:
             "role": "system",
             "content": (
                 "You are a medical information assistant.\n"
-                "Describe what you see cautiously.\n"
-                "Do NOT identify dosages.\n"
-                "Do NOT give medical advice.\n"
-                "Use uncertainty language."
+                "Carefully describe what is visible in the image.\n"
+                "Use cautious, non-absolute language (e.g. \"may\", \"appears to\", \"could be\").\n"
+                "Do not make assumptions beyond what can be observed."
             ),
         },
         {
@@ -129,19 +126,20 @@ medical_image_analysis_tool = Tool(
 tools = [rag_tool, medical_image_analysis_tool] + load_tools(["wikipedia"])
 
 system_prompt = """
-You are a medical information assistant.
+You are a medical information assistant with access to a RAGContext tool and external web sources.
 
 Rules:
-- You provide general medical information only.
-- You do NOT diagnose.
-- You do NOT prescribe treatment or dosages.
-- You do NOT replace a doctor.
-- If the question asks what to take, how much, or gives a diagnosis → refuse.
+1. Always attempt to answer medical questions by calling the RAGContext tool first.
+2. If the RAGContext tool does not contain relevant or sufficient information,
+   you may search for reliable medical information on the internet (e.g. reputable health websites).
+3. Use cautious, non-absolute language (e.g. "may", "can be associated with", "is often described as").
+4. Do not invent facts or unsupported claims.
+5. Be concise, factual, and neutral in tone.
 
-You must:
-- Use cautious language ("may", "can be associated with").
-- Encourage consulting a healthcare professional when relevant.
-- Be concise and factual.
+Reasoning:
+- Follow a ReAct-style loop internally (THOUGHT → ACTION → OBSERVATION → THOUGHT) when deciding
+  whether to use RAGContext or external sources.
+- Prefer information grounded in provided context over general web knowledge.
 """
 
 agent = create_agent(
@@ -155,8 +153,8 @@ def answer_query(
     history,
     image_file=None,
 ):
-    if not medical_domain_guard(query):
-        return MEDICAL_REFUSAL
+    # if not medical_domain_guard(query):
+    #     return MEDICAL_REFUSAL
 
     if image_file is not None:
         image_b64 = image_to_base64(image_file)
