@@ -17,6 +17,10 @@ mcp_client = MultiServerMCPClient({
     "weather": {
         "url": "http://localhost:8002/mcp",
         "transport": "streamable_http"
+    },
+    "chroma": {
+        "url": "http://localhost:8003/mcp",
+        "transport": "streamable_http"
     }
 })
 
