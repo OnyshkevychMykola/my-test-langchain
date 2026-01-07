@@ -10,12 +10,15 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 load_dotenv()
 
 mcp_client = MultiServerMCPClient({
-    "tools": {
-        "url": "http://localhost:8000/mcp",
+    "math": {
+        "url": "http://localhost:8001/mcp",
+        "transport": "streamable_http"
+    },
+    "weather": {
+        "url": "http://localhost:8002/mcp",
         "transport": "streamable_http"
     }
-}
-)
+})
 
 tools = asyncio.run(mcp_client.get_tools())
 
