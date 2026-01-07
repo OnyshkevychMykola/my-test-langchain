@@ -32,5 +32,23 @@ def get_weather(city: str) -> dict:
         "description": data["weather"][0]["description"],
     }
 
+@app.resource("weather://supported-cities")
+def supported_cities() -> dict:
+    return {
+        "cities": ["Kyiv", "Lviv", "Odesa", "Kharkiv", "Dnipro"]
+    }
+
+@app.prompt("weather_response")
+def weather_prompt(city: str, temperature: float, description: str) -> str:
+    return f"""
+    Provide a friendly weather report.
+
+    City: {city}
+    Temperature: {temperature} °C
+    Description: {description}
+
+    Respond in Ukrainian.
+    """
+
 if __name__ == "__main__":
     app.run(transport="streamable-http")
