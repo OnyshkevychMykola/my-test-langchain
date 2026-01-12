@@ -1,10 +1,10 @@
 import uuid
-
 import streamlit as st
 from chains import answer_query
 from dotenv import load_dotenv
-load_dotenv()
 from langchain_community.chat_message_histories import StreamlitChatMessageHistory
+
+load_dotenv()
 
 st.set_page_config(
     page_title="Medical AI Assistant",
@@ -18,6 +18,10 @@ if "chats" not in st.session_state:
 
 if "active_chat" not in st.session_state:
     st.session_state.active_chat = str(uuid.uuid4())
+
+if "uploaded_image" not in st.session_state:
+    st.session_state.uploaded_image = None
+
 
 def get_history(chat_id: str) -> StreamlitChatMessageHistory:
     if chat_id not in st.session_state.chats:
@@ -50,13 +54,31 @@ if history.messages:
 else:
     st.info("Start a medical-related conversation 👇")
 
-uploaded_image = st.file_uploader(
-    "📷 Upload a medical image (medicine box, leaflet, etc.)",
-    type=["png", "jpg", "jpeg"],
-)
+col1, col2 = st.columns([10, 1])
+
+with col2:
+    with st.popover("📎"):
+        uploaded_file = st.file_uploader(
+            "Upload image",
+            type=["png", "jpg", "jpeg"],
+            key="upload"
+        )
+
+        camera_file = st.camera_input(
+            "Take photo",
+            key="camera"
+        )
+
+        st.session_state.uploaded_image = uploaded_file or camera_file
+
+if st.session_state.uploaded_image:
+    st.image(
+        st.session_state.uploaded_image,
+        caption="Attached image",
+        width=200
+    )
 
 query = st.chat_input("Ask a medical question...")
-
 
 if query:
     history.add_user_message(query)
@@ -66,7 +88,7 @@ if query:
     with st.spinner("Thinking..."):
         answer = answer_query(
             query=query,
-            image_file=uploaded_image,
+            image_file=st.session_state.uploaded_image,
             history=history,
         )
 
@@ -74,3 +96,5 @@ if query:
 
     with st.chat_message("assistant"):
         st.write(answer)
+
+    st.session_state.uploaded_image = None
