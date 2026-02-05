@@ -84,7 +84,7 @@ async def search_internet_async(
     )
 
 internet_search_tool = StructuredTool.from_function(
-    func=search_internet_async,
+    coroutine=search_internet_async,
     name="internet_search",
     description="""
 Search for up-to-date information on the internet.

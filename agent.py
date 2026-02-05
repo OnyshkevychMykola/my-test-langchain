@@ -14,6 +14,7 @@ from langchain_classic.prompts import ChatPromptTemplate
 
 import rag_tool
 from ask_human import ask_human_tool
+from llm_quadrails import LLMTravelInputGuardrails, GuardrailResult
 from memory import SimpleWindowMemory
 from prompt import SYSTEM_PROMPT
 from search import internet_search_tool
@@ -46,6 +47,7 @@ class SearchRestaurantsArgs(BaseModel):
     query: str = Field(..., description="User query about restaurants")
 
 async def main():
+    guardrails = LLMTravelInputGuardrails()
     client = Client("mcp_server.py")
 
     async with client:
@@ -176,6 +178,14 @@ async def main():
                     continue
 
                 if not user_input:
+                    continue
+
+                check = guardrails.check(user_input)
+
+                if check.result != GuardrailResult.PASS:
+                    print(f"\n🛡️ {check.result.value.upper()}: {check.message}")
+                    if check.suggestion:
+                        print(f"💡 {check.suggestion}")
                     continue
 
                 memory.add_user(user_input)
