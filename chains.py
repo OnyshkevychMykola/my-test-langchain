@@ -1,5 +1,6 @@
 import base64
 import os
+from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
@@ -8,53 +9,94 @@ from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent
 from langchain_community.agent_toolkits.load_tools import load_tools
 from langchain_community.tools import DuckDuckGoSearchRun
-
-duckduckgo_tool = DuckDuckGoSearchRun()
+from langchain_core.messages import HumanMessage, AIMessage
 
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
+
+
+def _load_prompt(name: str) -> str:
+    path = PROMPTS_DIR / f"{name}.md"
+    if not path.exists():
+        return ""
+    return path.read_text(encoding="utf-8").strip()
+
+
+def _messages_from_history(history: list[dict]) -> list:
+    """Convert list of {role, content} to LangChain messages."""
+    result = []
+    for m in history:
+        role, content = m.get("role"), m.get("content", "")
+        if role == "user":
+            result.append(HumanMessage(content=content))
+        elif role == "assistant":
+            result.append(AIMessage(content=content))
+    return result
+
+
+duckduckgo_tool = DuckDuckGoSearchRun()
+
 llm = ChatOpenAI(
     model="gpt-4o-mini",
     temperature=0.3,
-    api_key=OPENAI_API_KEY
+    api_key=OPENAI_API_KEY,
 )
 
 def image_to_base64(file) -> str:
-    return base64.b64encode(file.read()).decode("utf-8")
+    if hasattr(file, "read"):
+        return base64.b64encode(file.read()).decode("utf-8")
+    return base64.b64encode(file).decode("utf-8")
+
+
+def _is_medical_query(query: str) -> bool:
+    """Returns True if the query is about medicine/health (for validation)."""
+    if not (query and query.strip()):
+        return False
+    prompt = _load_prompt("validation")
+    if not prompt:
+        return True
+    response = llm.invoke(
+        [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": query.strip()[:500]},
+        ]
+    )
+    answer = (response.content or "").strip().upper()
+    return "YES" in answer
+
+
+NON_MEDICAL_REPLY = (
+    "Це питання не стосується ліків чи медичної інформації. "
+    "Я можу допомогти лише з питаннями про препарати, дозування та медичну інформацію. "
+    "Задайте, будь ласка, питання про ліки або надішліть фото упаковки/інструкції."
+)
+
 
 def medical_image_tool(image_b64: str, question: str, history_messages=None) -> str:
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are a medical assistant specialized in identifying medicines from images.\n"
-                "Your task:\n"
-                "1. Try to identify the medicine name from the image.\n"
-                "2. If medicine is identified, provide:\n"
-                "- Name of the medicine\n"
-                "- What it is used for\n"
-                "- Typical dosage (adults / children if available)\n"
-                "- Contraindications\n"
-                "3. Always include a disclaimer advising to consult a doctor before use.\n"
-                "4. Use cautious language: 'may', 'usually', 'often used', 'can be prescribed for'.\n"
-                "5. If the image does NOT contain medicine or is unclear, say that you cannot identify it.\n"
-                "6. Do NOT hallucinate drug names.\n"
-            ),
-        }
-    ]
+    system_content = _load_prompt("image_analysis") or (
+        "You are a medical assistant specialized in identifying medicines from images. "
+        "Identify the medicine, provide name, use, dosage, contraindications. "
+        "Always add a disclaimer to consult a doctor. Do not hallucinate drug names."
+    )
+    messages = [{"role": "system", "content": system_content}]
 
     if history_messages:
-        messages.extend(history_messages)
+        for m in history_messages:
+            if hasattr(m, "content"):
+                role = "user" if m.type == "human" else "assistant"
+                messages.append({"role": role, "content": m.content})
+            else:
+                messages.append({"role": m.get("role"), "content": m.get("content", "")})
 
     messages.append({
         "role": "user",
         "content": [
-            {"type": "text", "text": question},
+            {"type": "text", "text": question or "Що це за препарат?"},
             {
                 "type": "image_url",
-                "image_url": {
-                    "url": f"data:image/jpeg;base64,{image_b64}"
-                },
+                "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
             },
         ],
     })
@@ -100,30 +142,11 @@ Contraindications: {item.get('contraindications', ['N/A'])[0][:500]}
 
 tools = [medical_image_analysis_tool, drug_lookup, duckduckgo_tool] + load_tools(["wikipedia"])
 
-system_prompt = """
-You are a medical information assistant.
-
-Goals:
-- Help identify medicines from images.
-- Provide medical information cautiously and factually.
-
-Rules:
-1. Always try to ground medical information in external sources (tools, APIs, Wikipedia, search).
-2. Every medical answer MUST include a section:
-   "Sources:" with a list of where the information came from.
-3. If no reliable sources were found, say clearly:
-   "I could not find reliable sources to confirm this information."
-4. Use cautious language ("may", "often used", "can be prescribed for").
-5. If the image or question is not medical, reply that you do not have information.
-6. Never invent drug names or medical facts.
-
-If you used:
-- Wikipedia → cite "Wikipedia"
-- DuckDuckGo search → cite "DuckDuckGo Search"
-- OpenFDA tool → cite "OpenFDA"
-- Other APIs → cite their names
-"""
-
+_system_prompt = _load_prompt("system")
+system_prompt = _system_prompt or (
+    "You are a medical information assistant. Help identify medicines and provide "
+    "cautious, factual information. Always cite sources. Never invent drug names."
+)
 
 agent = create_agent(
     model=llm,
@@ -131,25 +154,46 @@ agent = create_agent(
     system_prompt=system_prompt,
 )
 
+
+def _get_history_messages(history) -> list:
+    """Normalize history to list of LangChain messages (for agent)."""
+    if hasattr(history, "messages"):
+        return list(history.messages)
+    if isinstance(history, list):
+        return _messages_from_history(history)
+    return []
+
+
 def answer_query(
     query: str,
     history,
     image_file=None,
-):
-
+    image_base64: str | None = None,
+) -> str:
+    """
+    Answer a medical query. history can be StreamlitChatMessageHistory
+    or list of {"role": "user"|"assistant", "content": str}.
+    """
     if image_file is not None:
         image_b64 = image_to_base64(image_file)
+    elif image_base64:
+        image_b64 = image_base64
+    else:
+        image_b64 = None
+
+    if image_b64 is not None:
+        h = _get_history_messages(history)
         return medical_image_tool(
             image_b64=image_b64,
-            question=query,
-            history_messages=history.messages
+            question=query or "Що це за препарат?",
+            history_messages=h,
         )
 
-    result = agent.invoke(
-        {
-            "messages": history.messages
-            + [{"role": "user", "content": query}]
-        }
-    )
+    if not _is_medical_query(query):
+        return NON_MEDICAL_REPLY
 
+    messages = _get_history_messages(history)
+    messages.append(HumanMessage(content=query))
+
+    result = agent.invoke({"messages": messages})
     return result["messages"][-1].content
