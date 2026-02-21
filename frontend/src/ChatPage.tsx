@@ -1,8 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useAuth } from './auth'
 
-const API_BASE = '/api'
-
 type Mode = 'find' | 'ask'
 
 interface Message {
@@ -16,6 +14,48 @@ interface Conversation {
   title: string
   created_at: string
   updated_at: string
+}
+
+function IconSend({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+    </svg>
+  )
+}
+
+function IconImage({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+    </svg>
+  )
+}
+
+function IconCamera({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19 13v7a2 2 0 01-2 2H7a2 2 0 01-2-2v-7" />
+    </svg>
+  )
+}
+
+function IconPlus({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+    </svg>
+  )
+}
+
+function IconTrash({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+    </svg>
+  )
 }
 
 export default function ChatPage() {
@@ -58,7 +98,11 @@ export default function ChatPage() {
     const res = await fetchWithAuth('/conversations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) })
     if (!res.ok) return
     const c = await res.json()
-    setConversations((prev) => [c, ...prev])
+    setConversations((prev) => {
+      const exists = prev.some((x) => x.id === c.id)
+      if (exists) return prev
+      return [c, ...prev]
+    })
     setCurrentId(c.id)
     setMessages([])
   }
@@ -133,20 +177,26 @@ export default function ChatPage() {
     e.target.value = ''
   }
 
+  const canSend = mode === 'ask' ? !!input.trim() : !!pendingImage
+
   return (
-    <div className="flex h-screen bg-slate-50">
+    <div className="flex h-screen bg-slate-100">
       {/* Sidebar */}
-      <aside className="w-64 flex flex-col bg-white border-r border-slate-200 shrink-0">
-        <div className="p-3 border-b border-slate-200 flex items-center gap-2">
+      <aside className="w-60 flex flex-col bg-white border-r border-slate-200 shrink-0 shadow-sm">
+        <div className="p-3 border-b border-slate-100">
           <button
             type="button"
             onClick={newChat}
-            className="flex-1 py-2 px-3 rounded-lg border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50"
+            className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-slate-100 text-slate-700 text-sm font-medium hover:bg-slate-200 transition-colors"
           >
-            + Нова розмова
+            <IconPlus className="w-4 h-4" />
+            Нова розмова
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-2">
+        <div className="flex-1 overflow-y-auto p-2 min-h-0">
+          {conversations.length === 0 && (
+            <p className="text-slate-400 text-xs px-3 py-4 text-center">Поки що немає розмов</p>
+          )}
           {conversations.map((c) => (
             <div
               key={c.id}
@@ -154,80 +204,70 @@ export default function ChatPage() {
               tabIndex={0}
               onClick={() => selectConversation(c.id)}
               onKeyDown={(e) => e.key === 'Enter' && selectConversation(c.id)}
-              className={`group flex items-center gap-1 w-full text-left px-3 py-2.5 rounded-lg text-sm truncate ${
-                currentId === c.id ? 'bg-primary-50 text-primary-700' : 'text-slate-700 hover:bg-slate-100'
+              className={`group flex items-center gap-2 w-full text-left px-3 py-2.5 rounded-xl text-sm truncate transition-colors ${
+                currentId === c.id ? 'bg-primary-50 text-primary-700' : 'text-slate-600 hover:bg-slate-50'
               }`}
             >
               <span className="flex-1 truncate">{c.title || 'Без назви'}</span>
               <button
                 type="button"
                 onClick={(e) => deleteConversation(e, c.id)}
-                className="opacity-0 group-hover:opacity-100 p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 shrink-0"
+                className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-opacity shrink-0"
                 title="Видалити"
               >
-                ×
+                <IconTrash className="w-4 h-4" />
               </button>
             </div>
           ))}
         </div>
-        <div className="p-2 border-t border-slate-200 flex items-center gap-2">
-          {user?.avatar_url && <img src={user.avatar_url} alt="" className="w-8 h-8 rounded-full" />}
+        <div className="p-2 border-t border-slate-100 flex items-center gap-3 bg-slate-50/50">
+          {user?.avatar_url && <img src={user.avatar_url} alt="" className="w-9 h-9 rounded-full ring-2 ring-white shadow" />}
           <div className="flex-1 min-w-0">
+            <p className="text-xs text-slate-500 uppercase tracking-wide">Аккаунт</p>
             <p className="text-sm font-medium text-slate-800 truncate">{user?.name || user?.email || 'Користувач'}</p>
             <p className="text-xs text-slate-500 truncate">{user?.email}</p>
           </div>
-          <button type="button" onClick={logout} className="text-slate-500 hover:text-slate-700 text-sm">
-            Вийти
+          <button type="button" onClick={logout} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-200 transition-colors" title="Вийти">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1z" /></svg>
           </button>
         </div>
       </aside>
 
       {/* Main chat */}
-      <div className="flex-1 flex flex-col min-w-0">
-        <header className="border-b border-slate-200 bg-white shadow-sm shrink-0">
-          <div className="max-w-2xl mx-auto px-4 py-3">
-            <h1 className="text-lg font-semibold text-slate-800 text-center">Медичний асистент</h1>
-            <div className="flex justify-center mt-3 gap-0 rounded-lg bg-slate-100 p-1">
-              <button
-                type="button"
-                onClick={() => setMode('find')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                  mode === 'find' ? 'bg-white text-primary-600 shadow' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Find
-              </button>
-              <button
-                type="button"
-                onClick={() => setMode('ask')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                  mode === 'ask' ? 'bg-white text-primary-600 shadow' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Ask
-              </button>
-            </div>
-          </div>
+      <div className="flex-1 flex flex-col min-w-0 bg-slate-50">
+        <header className="shrink-0 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-center gap-4 shadow-sm">
+          <h1 className="text-base font-semibold text-slate-800">Медичний асистент</h1>
+          <label className="flex items-center gap-2 text-slate-600 text-sm">
+            <span className="sr-only">Режим</span>
+            <select
+              value={mode}
+              onChange={(e) => setMode(e.target.value as Mode)}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent cursor-pointer"
+            >
+              <option value="ask">Ask — питання про ліки</option>
+              <option value="find">Find — по фото</option>
+            </select>
+          </label>
         </header>
 
-        <main className="flex-1 overflow-y-auto max-w-2xl w-full mx-auto px-4 py-4">
+        <main className="flex-1 overflow-y-auto max-w-2xl w-full mx-auto px-4 py-6">
           {messages.length === 0 && (
-            <div className="text-center text-slate-500 text-sm py-8">
+            <div className="text-center text-slate-500 text-sm py-12">
               {currentId === null
                 ? 'Оберіть розмову зліва або створіть нову.'
                 : mode === 'find'
-                  ? 'Оберіть фото з галереї або зробіть знімок.'
-                  : 'Задайте питання про ліки.'}
+                  ? 'Додайте фото з галереї або зробіть знімок нижче.'
+                  : 'Задайте питання про ліки в полі внизу.'}
             </div>
           )}
           <div className="space-y-4">
             {messages.map((msg, i) => (
               <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 <div
-                  className={`max-w-[85%] rounded-2xl px-4 py-3 ${
+                  className={`max-w-[85%] rounded-2xl px-4 py-3 shadow-sm ${
                     msg.role === 'user'
                       ? 'bg-primary-500 text-white rounded-br-md'
-                      : 'bg-white border border-slate-200 text-slate-800 rounded-bl-md shadow-sm'
+                      : 'bg-white border border-slate-200 text-slate-800 rounded-bl-md'
                   }`}
                 >
                   {msg.imagePreview && (
@@ -239,7 +279,8 @@ export default function ChatPage() {
             ))}
             {loading && (
               <div className="flex justify-start">
-                <div className="bg-white border border-slate-200 rounded-2xl rounded-bl-md px-4 py-3 shadow-sm text-slate-500 text-sm">
+                <div className="bg-white border border-slate-200 rounded-2xl rounded-bl-md px-4 py-3 shadow-sm text-slate-500 text-sm flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-primary-400 animate-pulse" />
                   Думаю...
                 </div>
               </div>
@@ -247,59 +288,61 @@ export default function ChatPage() {
           </div>
         </main>
 
-        <footer className="border-t border-slate-200 bg-white p-4 shrink-0">
+        <footer className="shrink-0 bg-white border-t border-slate-200 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
           <div className="max-w-2xl mx-auto">
             <input type="file" ref={fileInputRef} accept="image/*" className="hidden" onChange={onFileChange} />
             <input type="file" ref={cameraInputRef} accept="image/*" capture="environment" className="hidden" onChange={onFileChange} />
 
-            {mode === 'find' && (
-              <div className="flex gap-2 mb-3">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex-1 py-2.5 px-4 rounded-xl border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50"
-                >
-                  З галереї
-                </button>
-                <button
-                  type="button"
-                  onClick={() => cameraInputRef.current?.click()}
-                  className="flex-1 py-2.5 px-4 rounded-xl border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50"
-                >
-                  Зробити фото
-                </button>
-              </div>
-            )}
-
             {pendingImage && mode === 'find' && (
               <div className="relative mb-3 inline-block">
-                <img src={pendingImage.preview} alt="" className="h-24 rounded-lg object-cover border border-slate-200" />
+                <img src={pendingImage.preview} alt="" className="h-20 rounded-xl object-cover border border-slate-200 shadow-inner" />
                 <button
                   type="button"
                   onClick={() => setPendingImage(null)}
-                  className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-slate-700 text-white text-xs"
+                  className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-slate-700 text-white flex items-center justify-center text-sm hover:bg-slate-800"
                 >
                   ×
                 </button>
               </div>
             )}
 
-            <div className="flex gap-2">
+            <div className="flex items-end gap-2">
+              {mode === 'find' && (
+                <div className="flex items-center gap-1 shrink-0 pb-1">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="p-2.5 rounded-xl text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                    title="З галереї"
+                  >
+                    <IconImage className="w-5 h-5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => cameraInputRef.current?.click()}
+                    className="p-2.5 rounded-xl text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                    title="Зробити фото"
+                  >
+                    <IconCamera className="w-5 h-5" />
+                  </button>
+                </div>
+              )}
               <input
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendAsk()}
                 placeholder={mode === 'ask' ? 'Питання про ліки...' : 'Опишіть питання (необов’язково)'}
-                className="flex-1 rounded-xl border border-slate-300 px-4 py-3 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                className="flex-1 rounded-xl border border-slate-200 px-4 py-3 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-slate-50"
               />
               <button
                 type="button"
                 onClick={sendAsk}
-                disabled={loading || (mode === 'ask' ? !input.trim() : !pendingImage)}
-                className="px-5 py-3 rounded-xl bg-primary-500 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-primary-600"
+                disabled={loading || !canSend}
+                className="shrink-0 p-3 rounded-xl bg-primary-500 text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-primary-600 transition-colors flex items-center justify-center"
+                title="Надіслати"
               >
-                Надіслати
+                <IconSend className="w-5 h-5" />
               </button>
             </div>
           </div>

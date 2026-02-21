@@ -20,6 +20,7 @@ from db import (
     conversation_create,
     conversation_list,
     conversation_get,
+    conversation_find_empty,
     conversation_delete,
     conversation_update_title,
     message_add,
@@ -134,7 +135,11 @@ def create_conversation(
     title: Optional[str] = None,
     user_id: int = Depends(get_current_user_id),
 ):
-    c = conversation_create(user_id, title=title or "Нова розмова")
+    c = conversation_create(user_id, title=title or "Нова розмова", allow_if_empty_exists=False)
+    if c is None:
+        c = conversation_find_empty(user_id)
+        if not c:
+            raise HTTPException(status_code=500, detail="No empty conversation found")
     return ConversationOut(id=c["id"], title=c["title"], created_at=c["created_at"], updated_at=c["updated_at"])
 
 
@@ -176,7 +181,10 @@ def _ensure_conversation(conversation_id: Optional[int], user_id: int) -> int:
         if not conv:
             raise HTTPException(status_code=404, detail="Conversation not found")
         return conversation_id
-    c = conversation_create(user_id, title="Нова розмова")
+    empty = conversation_find_empty(user_id)
+    if empty:
+        return empty["id"]
+    c = conversation_create(user_id, title="Нова розмова", allow_if_empty_exists=True)
     return c["id"]
 
 

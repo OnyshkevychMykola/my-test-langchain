@@ -100,7 +100,15 @@ def user_get_or_create(google_id: str, email: Optional[str] = None, name: Option
 
 # --- Conversations ---
 
-def conversation_create(user_id: int, title: Optional[str] = None) -> dict:
+def conversation_create(user_id: int, title: Optional[str] = None, allow_if_empty_exists: bool = False) -> Optional[dict]:
+    """
+    Create a new conversation. If allow_if_empty_exists is False and user already
+    has a conversation with 0 messages, returns None (caller should use the existing empty one).
+    """
+    if not allow_if_empty_exists:
+        existing = conversation_find_empty(user_id)
+        if existing:
+            return None
     now = _utc_now()
     with get_conn() as conn:
         cur = conn.execute(
@@ -118,6 +126,22 @@ def conversation_list(user_id: int) -> list[dict]:
             (user_id,),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def conversation_find_empty(user_id: int) -> Optional[dict]:
+    """Return one conversation that has zero messages (for "no duplicate empty" rule)."""
+    with get_conn() as conn:
+        row = conn.execute("""
+            SELECT c.id, c.user_id, c.title, c.created_at, c.updated_at
+            FROM conversations c
+            LEFT JOIN messages m ON m.conversation_id = c.id
+            WHERE c.user_id = ?
+            GROUP BY c.id
+            HAVING COUNT(m.id) = 0
+            ORDER BY c.id DESC
+            LIMIT 1
+        """, (user_id,)).fetchone()
+    return dict(row) if row else None
 
 
 def conversation_get(conversation_id: int, user_id: int) -> Optional[dict]:
