@@ -8,7 +8,10 @@ function AppContent() {
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <p className="text-slate-500">Завантаження...</p>
+        <div className="flex flex-col items-center gap-3">
+          <span className="w-8 h-8 rounded-full border-2 border-primary-200 border-t-primary-500 animate-spin" aria-hidden />
+          <p className="text-slate-500 text-sm">Завантаження...</p>
+        </div>
       </div>
     )
   }

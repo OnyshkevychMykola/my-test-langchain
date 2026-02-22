@@ -14,7 +14,7 @@ export default function LoginPage() {
           <button
             type="button"
             onClick={login}
-            className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-white border border-slate-300 text-slate-700 font-medium hover:bg-slate-50"
+            className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-white border border-slate-300 text-slate-700 font-medium hover:bg-primary-50 hover:border-primary-200 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 transition-colors duration-200 cursor-pointer"
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24">
               <path

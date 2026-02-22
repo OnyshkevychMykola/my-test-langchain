@@ -178,6 +178,7 @@ export default function ChatPage() {
   }
 
   const canSend = mode === 'ask' ? !!input.trim() : !!pendingImage
+  const isNewEmptyChat = currentId !== null && messages.length === 0
 
   return (
     <div className="flex h-screen bg-slate-100">
@@ -187,7 +188,7 @@ export default function ChatPage() {
           <button
             type="button"
             onClick={newChat}
-            className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-slate-100 text-slate-700 text-sm font-medium hover:bg-slate-200 transition-colors"
+            className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-primary-50 text-primary-700 text-sm font-medium hover:bg-primary-100 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 transition-colors duration-200 cursor-pointer"
           >
             <IconPlus className="w-4 h-4" />
             Нова розмова
@@ -204,7 +205,7 @@ export default function ChatPage() {
               tabIndex={0}
               onClick={() => selectConversation(c.id)}
               onKeyDown={(e) => e.key === 'Enter' && selectConversation(c.id)}
-              className={`group flex items-center gap-2 w-full text-left px-3 py-2.5 rounded-xl text-sm truncate transition-colors ${
+              className={`group flex items-center gap-2 w-full text-left px-3 py-2.5 rounded-xl text-sm truncate transition-colors duration-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-inset ${
                 currentId === c.id ? 'bg-primary-50 text-primary-700' : 'text-slate-600 hover:bg-slate-50'
               }`}
             >
@@ -212,7 +213,7 @@ export default function ChatPage() {
               <button
                 type="button"
                 onClick={(e) => deleteConversation(e, c.id)}
-                className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-opacity shrink-0"
+                className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-opacity duration-200 shrink-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-inset"
                 title="Видалити"
               >
                 <IconTrash className="w-4 h-4" />
@@ -227,7 +228,7 @@ export default function ChatPage() {
             <p className="text-sm font-medium text-slate-800 truncate">{user?.name || user?.email || 'Користувач'}</p>
             <p className="text-xs text-slate-500 truncate">{user?.email}</p>
           </div>
-          <button type="button" onClick={logout} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-200 transition-colors" title="Вийти">
+          <button type="button" onClick={logout} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-200 transition-colors duration-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-1" title="Вийти">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1z" /></svg>
           </button>
         </div>
@@ -242,7 +243,7 @@ export default function ChatPage() {
             <select
               value={mode}
               onChange={(e) => setMode(e.target.value as Mode)}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent cursor-pointer"
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent cursor-pointer transition-colors duration-200"
             >
               <option value="ask">Ask — питання про ліки</option>
               <option value="find">Find — по фото</option>
@@ -252,12 +253,25 @@ export default function ChatPage() {
 
         <main className="flex-1 overflow-y-auto max-w-2xl w-full mx-auto px-4 py-6">
           {messages.length === 0 && (
-            <div className="text-center text-slate-500 text-sm py-12">
-              {currentId === null
-                ? 'Оберіть розмову зліва або створіть нову.'
-                : mode === 'find'
-                  ? 'Додайте фото з галереї або зробіть знімок нижче.'
-                  : 'Задайте питання про ліки в полі внизу.'}
+            <div className="text-center py-12 min-h-[200px] flex flex-col items-center justify-center">
+              {currentId === null ? (
+                <p className="text-slate-500 text-sm">Оберіть розмову зліва або створіть нову.</p>
+              ) : isNewEmptyChat ? (
+                <div className="flex flex-col items-center gap-6">
+                  <div className="space-y-1">
+                    <p className="text-slate-800 font-medium">Нова розмова</p>
+                    <p className="text-slate-500 text-sm max-w-xs">
+                      {mode === 'find'
+                        ? 'Додайте фото з галереї або зробіть знімок нижче — допоможу визначити препарат.'
+                        : 'Задайте питання про ліки, дозування або доступність у полі внизу.'}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-slate-500 text-sm">
+                  {mode === 'find' ? 'Додайте фото з галереї або зробіть знімок нижче.' : 'Задайте питання про ліки в полі внизу.'}
+                </p>
+              )}
             </div>
           )}
           <div className="space-y-4">
@@ -299,7 +313,7 @@ export default function ChatPage() {
                 <button
                   type="button"
                   onClick={() => setPendingImage(null)}
-                  className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-slate-700 text-white flex items-center justify-center text-sm hover:bg-slate-800"
+                  className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-slate-700 text-white flex items-center justify-center text-sm hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-primary-500 transition-colors duration-200 cursor-pointer"
                 >
                   ×
                 </button>
@@ -312,7 +326,7 @@ export default function ChatPage() {
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="p-2.5 rounded-xl text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                    className="p-2.5 rounded-xl text-slate-500 hover:text-slate-700 hover:bg-slate-100 hover:text-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-1 transition-colors duration-200 cursor-pointer"
                     title="З галереї"
                   >
                     <IconImage className="w-5 h-5" />
@@ -320,7 +334,7 @@ export default function ChatPage() {
                   <button
                     type="button"
                     onClick={() => cameraInputRef.current?.click()}
-                    className="p-2.5 rounded-xl text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                    className="p-2.5 rounded-xl text-slate-500 hover:text-slate-700 hover:bg-slate-100 hover:text-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-1 transition-colors duration-200 cursor-pointer"
                     title="Зробити фото"
                   >
                     <IconCamera className="w-5 h-5" />
@@ -333,13 +347,13 @@ export default function ChatPage() {
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendAsk()}
                 placeholder={mode === 'ask' ? 'Питання про ліки...' : 'Опишіть питання (необов’язково)'}
-                className="flex-1 rounded-xl border border-slate-200 px-4 py-3 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-slate-50"
+                className="flex-1 rounded-xl border border-slate-200 px-4 py-3 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-slate-50 transition-shadow duration-200"
               />
               <button
                 type="button"
                 onClick={sendAsk}
                 disabled={loading || !canSend}
-                className="shrink-0 p-3 rounded-xl bg-primary-500 text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-primary-600 transition-colors flex items-center justify-center"
+                className="shrink-0 p-3 rounded-xl bg-primary-500 text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 transition-colors duration-200 flex items-center justify-center cursor-pointer"
                 title="Надіслати"
               >
                 <IconSend className="w-5 h-5" />

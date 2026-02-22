@@ -3,4 +3,8 @@
 ./venv
 ./chroma_db
 .cursor
+.claude
 ./frontend/node_modules
+venv
+.idea
+medical_assistant.db
