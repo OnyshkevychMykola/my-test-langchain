@@ -2,3 +2,5 @@
 .env
 ./venv
 ./chroma_db
+.cursor
+./frontend/node_modules
