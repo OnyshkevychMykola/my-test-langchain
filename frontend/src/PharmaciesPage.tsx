@@ -79,6 +79,32 @@ function IconPhone({ className }: { className?: string }) {
   )
 }
 
+const LOCATION_CACHE_KEY = 'pharma_user_location'
+const LOCATION_CACHE_TTL = 15 * 60 * 1000
+
+function getCachedLocation(): UserLocation | null {
+  try {
+    const raw = localStorage.getItem(LOCATION_CACHE_KEY)
+    if (!raw) return null
+    const { lat, lon, ts } = JSON.parse(raw) as { lat: number; lon: number; ts: number }
+    if (Date.now() - ts > LOCATION_CACHE_TTL) {
+      localStorage.removeItem(LOCATION_CACHE_KEY)
+      return null
+    }
+    return { lat, lon }
+  } catch {
+    return null
+  }
+}
+
+function setCachedLocation(lat: number, lon: number) {
+  try {
+    localStorage.setItem(LOCATION_CACHE_KEY, JSON.stringify({ lat, lon, ts: Date.now() }))
+  } catch {
+    // localStorage may be unavailable in some private-browsing contexts
+  }
+}
+
 export default function PharmaciesPage() {
   const [location, setLocation] = useState<UserLocation | null>(null)
   const [pharmacies, setPharmacies] = useState<Pharmacy[]>([])
@@ -106,7 +132,16 @@ export default function PharmaciesPage() {
     }
   }
 
-  const getLocation = () => {
+  const getLocation = (forceRefresh = false) => {
+    if (!forceRefresh) {
+      const cached = getCachedLocation()
+      if (cached) {
+        setLocation(cached)
+        fetchPharmacies(cached.lat, cached.lon)
+        return
+      }
+    }
+
     if (!navigator.geolocation) {
       setGeoError('Ваш браузер не підтримує геолокацію.')
       return
@@ -116,13 +151,15 @@ export default function PharmaciesPage() {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const { latitude, longitude } = pos.coords
+        setCachedLocation(latitude, longitude)
         setLocation({ lat: latitude, lon: longitude })
         setLoadingGeo(false)
         fetchPharmacies(latitude, longitude)
       },
       (err) => {
         setLoadingGeo(false)
-        if (err.code === err.PERMISSION_DENIED) {
+        console.log(err.code, 'err')
+        if (err.code === 1) {
           setGeoError('Доступ до геолокації заборонено. Дозвольте доступ у налаштуваннях браузера.')
         } else {
           setGeoError('Не вдалося визначити ваше місцезнаходження.')
@@ -169,9 +206,9 @@ export default function PharmaciesPage() {
           </div>
           <button
             type="button"
-            onClick={getLocation}
+            onClick={() => getLocation(true)}
             disabled={loadingGeo || loadingPharm}
-            title="Оновити"
+            title="Оновити локацію"
             className="p-2 rounded-xl text-slate-500 hover:text-primary-600 hover:bg-primary-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary-500"
           >
             <IconRefresh className={`w-4 h-4 ${(loadingGeo || loadingPharm) ? 'animate-spin' : ''}`} />
