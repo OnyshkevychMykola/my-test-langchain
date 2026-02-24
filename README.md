@@ -1,6 +1,6 @@
 # Медичний асистент — пошук та аналіз ліків
 
-Веб-додаток для пошуку та детального аналізу ліків за фото або текстовим запитом. Підтримує авторизацію через Google, збереження розмов та контекстне вікно для історії діалогу.
+Веб-додаток для пошуку та детального аналізу ліків за фото або текстовим запитом. Підтримує авторизацію через Google, збереження розмов, контекстне вікно для історії діалогу та пошук аптек на карті.
 
 ---
 
@@ -8,10 +8,11 @@
 
 - **Find** — розпізнавання препарату за зображенням (галерея або камера).
 - **Ask** — текстові питання про ліки з валідацією нетипових запитів.
+- **Аптеки** — пошук найближчих аптек на інтерактивній карті (OpenStreetMap / Leaflet).
 - **Авторизація** — вхід через Google OAuth; дані користувача та розмови зберігаються в SQLite.
 - **Розмови** — сайдбар у стилі чату: список розмов, створення нової (одна порожня за раз), видалення. Контекстне вікно — останні 20 повідомлень для LLM.
 
-Стек: **бекенд** — Python, FastAPI, LangChain, SQLite; **фронтенд** — React, TypeScript, Vite, Tailwind CSS.
+Стек: **бекенд** — Python, FastAPI, LangChain, SQLite; **фронтенд** — React, TypeScript, Vite, Tailwind CSS, Leaflet.
 
 ---
 
@@ -26,8 +27,8 @@
 
 ## Запуск (коротко)
 
-1. Налаштувати `.env` у корені проєкту (див. [Бекенд](#бекенд)).
-2. Запустити бекенд: `uvicorn api:app --reload` (порт 8000).
+1. Налаштувати `backend/.env` (див. [Бекенд](#бекенд)).
+2. Запустити бекенд: `cd backend && uvicorn api:app --reload` (порт 8000).
 3. Запустити фронтенд: `cd frontend && npm install && npm run dev` (порт 5173).
 4. Відкрити в браузері `http://localhost:5173`, увійти через Google.
 
@@ -37,12 +38,12 @@
 
 ## Бекенд
 
-API та логіка чату (FastAPI, LangChain, SQLite, Google OAuth).
+API та логіка чату (FastAPI, LangChain, SQLite, Google OAuth). Всі Python-файли знаходяться у папці `backend/`.
 
 ### Вимоги (Python)
 
 - Python 3.10+
-- Залежності з `requirements.txt` у корені проєкту:
+- Залежності з `backend/requirements.txt`:
   - `fastapi`, `uvicorn`, `python-multipart`
   - `langchain`, `langchain-openai`, `langchain-community`
   - `python-dotenv`, `httpx`, `PyJWT`
@@ -50,7 +51,7 @@ API та логіка чату (FastAPI, LangChain, SQLite, Google OAuth).
 
 ### Змінні середовища (.env)
 
-У корені проєкту створіть `.env` (можна скопіювати з `.env.example`):
+У папці `backend/` створіть `.env` (можна скопіювати з `backend/.env.example`):
 
 | Змінна | Опис |
 |--------|------|
@@ -67,7 +68,7 @@ API та логіка чату (FastAPI, LangChain, SQLite, Google OAuth).
 ### Встановлення та запуск
 
 ```bash
-# У корені проєкту (там, де api.py та requirements.txt)
+cd backend
 pip install -r requirements.txt
 uvicorn api:app --reload
 ```
@@ -79,24 +80,24 @@ uvicorn api:app --reload
 
 | Файл | Призначення |
 |------|-------------|
-| `api.py` | FastAPI: auth, conversations, chat (ask/find). |
-| `chains.py` | LangChain-агент, промпти, валідація медичних питань. |
-| `db.py` | SQLite: users, conversations, messages, контекстне вікно. |
-| `auth.py` | Google OAuth, JWT. |
-| `prompts/*.md` | Системні промпти (Markdown). |
+| `backend/api.py` | FastAPI: auth, conversations, chat (ask/find). |
+| `backend/chains.py` | LangChain-агент, промпти, валідація медичних питань. |
+| `backend/db.py` | SQLite: users, conversations, messages, контекстне вікно. |
+| `backend/auth.py` | Google OAuth, JWT. |
+| `backend/prompts/*.md` | Системні промпти (Markdown). |
 
-База даних: файл **`medical_assistant.db`** у корені проєкту (створюється при першому запиті).
+База даних: файл **`medical_assistant.db`** у папці `backend/` (створюється при першому запиті).
 
 ---
 
 ## Фронтенд
 
-React-інтерфейс: логін через Google, сайдбар з розмовами, чат (Find / Ask).
+React-інтерфейс: логін через Google, сайдбар з розмовами, чат (Find / Ask), карта аптек.
 
 ### Вимоги (Node.js)
 
 - Node.js 18+
-- Залежності з `frontend/package.json`: React 18, Vite, TypeScript, Tailwind CSS.
+- Залежності з `frontend/package.json`: React 18, Vite, TypeScript, Tailwind CSS, react-leaflet.
 
 ### Встановлення та запуск
 
@@ -127,15 +128,20 @@ npm run dev
 
 ```
 .
-├── api.py              # FastAPI-додаток
-├── auth.py             # Google OAuth, JWT
-├── chains.py           # Логіка агента та промпти
-├── db.py               # SQLite
-├── requirements.txt
-├── .env.example
-├── prompts/            # Системні промпти (.md)
-├── frontend/           # React-додаток
-│   ├── README.md       # Інструкції для фронтенду
+├── backend/                # Python-бекенд
+│   ├── api.py              # FastAPI-додаток
+│   ├── auth.py             # Google OAuth, JWT
+│   ├── chains.py           # Логіка агента та промпти
+│   ├── db.py               # SQLite
+│   ├── app.py              # Streamlit (старий UI, опційно)
+│   ├── requirements.txt
+│   ├── .env.example
+│   └── prompts/            # Системні промпти (.md)
+│       ├── system.md
+│       ├── image_analysis.md
+│       └── validation.md
+├── frontend/               # React-додаток
+│   ├── README.md           # Інструкції для фронтенду
 │   ├── package.json
 │   ├── vite.config.ts
 │   └── src/
@@ -143,9 +149,9 @@ npm run dev
 │       ├── auth.tsx
 │       ├── ChatPage.tsx
 │       ├── LoginPage.tsx
+│       ├── PharmaciesPage.tsx  # Карта аптек
 │       └── ...
-├── app.py              # Streamlit (старий UI, опційно)
-└── README.md           # Цей файл
+└── README.md               # Цей файл
 ```
 
 ---
@@ -155,12 +161,7 @@ npm run dev
 Старий інтерфейс без авторизації та збереження розмов:
 
 ```bash
+cd backend
 pip install -r requirements.txt
 streamlit run app.py
 ```
-
----
-
-## Режим Buy
-
-Поки не реалізований.
