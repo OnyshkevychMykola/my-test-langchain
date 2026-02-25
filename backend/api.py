@@ -4,11 +4,12 @@ Auth: Google OAuth + JWT. Data: SQLite (users → conversations → messages).
 Run: uvicorn api:app --reload
 """
 import base64
-import json
+import os
 import secrets
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends
+from fastapi import Cookie, FastAPI, HTTPException, UploadFile, File, Form, Depends, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
@@ -16,6 +17,7 @@ from pydantic import BaseModel
 from chains import answer_query
 from db import (
     init_db,
+    user_get_by_id,
     user_get_or_create,
     conversation_create,
     conversation_list,
@@ -26,14 +28,22 @@ from db import (
     message_add,
     messages_list,
     messages_last_n_for_context,
+    refresh_token_store,
+    refresh_token_is_valid,
+    refresh_token_revoke,
     CONTEXT_WINDOW_SIZE,
 )
 from auth import (
     build_google_login_url,
     exchange_code_for_user,
-    create_jwt,
+    create_access_token,
+    create_refresh_token,
+    decode_refresh_token,
+    sign_oauth_state,
+    verify_oauth_state,
     get_current_user_id,
     FRONTEND_URL,
+    REFRESH_TOKEN_EXPIRE_DAYS,
 )
 
 app = FastAPI(title="Medical AI Assistant API")
@@ -52,25 +62,47 @@ def startup():
     init_db()
 
 
-# --- Auth ---
+def _is_production() -> bool:
+    return os.getenv("ENV", "development").lower() == "production"
+
+
+def _set_refresh_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key="refresh_token",
+        value=token,
+        httponly=True,
+        secure=_is_production(),
+        samesite="lax",
+        max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600,
+        path="/auth",
+    )
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(key="refresh_token", path="/auth")
+
 
 @app.get("/auth/google")
 def auth_google():
     """Redirect to Google OAuth. Set API_BASE_URL in env if behind proxy."""
-    import os
     base = os.getenv("API_BASE_URL", "http://localhost:8000")
     redirect_uri = f"{base.rstrip('/')}/auth/google/callback"
-    state = secrets.token_urlsafe(16)
-    url = build_google_login_url(redirect_uri, state)
+    raw_state = secrets.token_urlsafe(16)
+    signed_state = sign_oauth_state(raw_state)
+    url = build_google_login_url(redirect_uri, signed_state)
     return RedirectResponse(url=url)
 
 
 @app.get("/auth/google/callback")
 async def auth_google_callback(code: Optional[str] = None, state: Optional[str] = None):
-    """Exchange code for user, create JWT, redirect to frontend with token."""
+    """Exchange code for user, create access + refresh tokens, redirect to frontend."""
     if not code:
         raise HTTPException(status_code=400, detail="Missing code")
-    import os
+    if not state:
+        raise HTTPException(status_code=400, detail="Missing state")
+
+    verify_oauth_state(state)
+
     base = os.getenv("API_BASE_URL", "http://localhost:8000")
     redirect_uri = f"{base.rstrip('/')}/auth/google/callback"
     user_info = await exchange_code_for_user(code, redirect_uri)
@@ -79,9 +111,64 @@ async def auth_google_callback(code: Optional[str] = None, state: Optional[str] 
     name = user_info.get("name")
     avatar_url = user_info.get("picture")
     user = user_get_or_create(google_id, email=email, name=name, avatar_url=avatar_url)
-    token = create_jwt(user["id"], google_id)
-    # Redirect to frontend with token in hash (so it's not sent to server logs)
-    return RedirectResponse(url=f"{FRONTEND_URL}#token={token}")
+
+    access_token = create_access_token(user["id"], google_id)
+    jti, refresh_token = create_refresh_token(user["id"])
+
+    expires_at = (datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
+    refresh_token_store(jti, user["id"], expires_at)
+
+    # Redirect with access token in hash (not sent to server); refresh token goes in HttpOnly cookie
+    response = RedirectResponse(url=f"{FRONTEND_URL}#token={access_token}")
+    _set_refresh_cookie(response, refresh_token)
+    return response
+
+
+@app.post("/auth/refresh")
+async def auth_refresh(response: Response, refresh_token: Optional[str] = Cookie(default=None)):
+    """Issue a new access token using the refresh token cookie. Rotates the refresh token."""
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="No refresh token")
+
+    payload = decode_refresh_token(refresh_token)
+    jti = payload["jti"]
+    user_id = int(payload["sub"])
+
+    if not refresh_token_is_valid(jti):
+        raise HTTPException(status_code=401, detail="Refresh token revoked or expired")
+
+    # Rotate: revoke old token, issue new one
+    refresh_token_revoke(jti)
+    user = user_get_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    new_access_token = create_access_token(user_id, user["google_id"])
+    new_jti, new_refresh_token = create_refresh_token(user_id)
+
+    expires_at = (datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
+    refresh_token_store(new_jti, user_id, expires_at)
+
+    _set_refresh_cookie(response, new_refresh_token)
+    return {"access_token": new_access_token, "token_type": "bearer"}
+
+
+@app.post("/auth/logout")
+async def auth_logout(
+    response: Response,
+    refresh_token: Optional[str] = Cookie(default=None),
+    user_id: int = Depends(get_current_user_id),
+):
+    """Revoke the refresh token and clear the cookie."""
+    if refresh_token:
+        try:
+            payload = decode_refresh_token(refresh_token)
+            refresh_token_revoke(payload["jti"])
+        except HTTPException:
+            # Token may already be expired/invalid — still clear cookie
+            pass
+    _clear_refresh_cookie(response)
+    return {"ok": True}
 
 
 class ChatMessage(BaseModel):
@@ -108,7 +195,6 @@ def health():
 @app.get("/auth/me")
 def auth_me(user_id: int = Depends(get_current_user_id)):
     """Return current user info (for UI)."""
-    from db import user_get_by_id
     user = user_get_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")

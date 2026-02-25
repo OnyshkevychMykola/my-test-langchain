@@ -55,8 +55,17 @@ def init_db():
                 created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS refresh_tokens (
+                jti TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                expires_at TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                revoked INTEGER NOT NULL DEFAULT 0
+            );
+
             CREATE INDEX IF NOT EXISTS idx_conversations_user ON conversations(user_id);
             CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
+            CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
         """)
 
 
@@ -218,3 +227,41 @@ def messages_last_n_for_context(conversation_id: int, n: int = CONTEXT_WINDOW_SI
         """, (conversation_id, n)).fetchall()
     # Reverse so oldest first (chronological for LLM)
     return [dict(r) for r in reversed(rows)]
+
+def refresh_token_store(jti: str, user_id: int, expires_at: str) -> None:
+    now = _utc_now()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO refresh_tokens (jti, user_id, expires_at, created_at, revoked) VALUES (?, ?, ?, ?, 0)",
+            (jti, user_id, expires_at, now),
+        )
+
+
+def refresh_token_is_valid(jti: str) -> bool:
+    """Return True only if the token exists, is not revoked, and has not expired."""
+    now = _utc_now()
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT jti FROM refresh_tokens WHERE jti = ? AND revoked = 0 AND expires_at > ?",
+            (jti, now),
+        ).fetchone()
+    return row is not None
+
+
+def refresh_token_revoke(jti: str) -> None:
+    with get_conn() as conn:
+        conn.execute("UPDATE refresh_tokens SET revoked = 1 WHERE jti = ?", (jti,))
+
+
+def refresh_tokens_revoke_all_for_user(user_id: int) -> None:
+    """Revoke every active refresh token for a user (logout from all devices)."""
+    with get_conn() as conn:
+        conn.execute("UPDATE refresh_tokens SET revoked = 1 WHERE user_id = ? AND revoked = 0", (user_id,))
+
+
+def refresh_tokens_cleanup_expired() -> int:
+    """Delete expired tokens to keep the table small. Returns number of rows removed."""
+    now = _utc_now()
+    with get_conn() as conn:
+        cur = conn.execute("DELETE FROM refresh_tokens WHERE expires_at <= ?", (now,))
+        return cur.rowcount
