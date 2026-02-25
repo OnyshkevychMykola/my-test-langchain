@@ -48,7 +48,7 @@ const MODES: { value: Mode; label: string; icon: React.ReactNode }[] = [
 
 function ModeTabs({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void }) {
   return (
-    <div className="flex items-center gap-1 p-1 rounded-xl bg-white/5 border border-white/8">
+    <div className="flex items-center gap-1 p-1 rounded-xl bg-white/5 border border-white/5">
       {MODES.map((m) => (
         <button
           key={m.value}
@@ -158,7 +158,7 @@ function SidebarContent({
 }) {
   return (
     <div className="flex flex-col h-full">
-      <div className="px-4 py-4 border-b border-white/8">
+      <div className="px-4 py-4 border-b border-white/5">
         <div className="flex items-center gap-3">
           <div
             className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
@@ -223,7 +223,7 @@ function SidebarContent({
         ))}
       </div>
 
-      <div className="p-3 border-t border-white/8">
+      <div className="p-3 border-t border-white/5">
         <div className="flex items-center gap-2.5 px-1">
           {user?.avatar_url ? (
             <img src={user.avatar_url} alt="" className="w-8 h-8 rounded-full ring-1 ring-white/20 shrink-0" />
@@ -394,7 +394,7 @@ export default function ChatPage() {
   if (mode === 'pharmacies') {
     return (
       <div className="flex flex-col h-screen bg-base">
-        <header className="shrink-0 border-b border-white/8 px-4 py-3 flex items-center gap-3 bg-surface">
+        <header className="shrink-0 border-b border-white/5 px-4 py-3 flex items-center gap-3 bg-surface">
           <button
             type="button"
             className="md:hidden p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/8 transition-colors duration-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-accent"
@@ -426,7 +426,7 @@ export default function ChatPage() {
       <aside
         className={`
           fixed md:relative inset-y-0 left-0 z-50 md:z-auto
-          w-64 shrink-0 flex flex-col bg-surface border-r border-white/8
+          w-64 shrink-0 flex flex-col bg-surface border-r border-white/5
           transform transition-transform duration-250 ease-out
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
         `}
@@ -452,7 +452,7 @@ export default function ChatPage() {
       </aside>
 
       <div className="flex-1 flex flex-col min-w-0 grid-bg">
-        <header className="shrink-0 border-b border-white/8 px-4 py-3 flex items-center gap-3 bg-base/80 backdrop-blur-sm">
+        <header className="shrink-0 border-b border-white/5 px-4 py-3 flex items-center gap-3 bg-base/80 backdrop-blur-sm">
           <button
             type="button"
             className="md:hidden p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/8 transition-colors duration-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-accent"
@@ -509,7 +509,7 @@ export default function ChatPage() {
                   className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
                     msg.role === 'user'
                       ? 'text-white rounded-br-sm'
-                      : 'bg-white/6 border border-white/8 text-slate-100 rounded-bl-sm'
+                      : 'bg-white/6 border border-white/5 text-slate-100 rounded-bl-sm'
                   }`}
                   style={
                     msg.role === 'user'
@@ -540,7 +540,7 @@ export default function ChatPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-3-3v6m-7 4h14a2 2 0 002-2V7l-5-5H5a2 2 0 00-2 2v14a2 2 0 002 2z" />
                   </svg>
                 </div>
-                <div className="bg-white/6 border border-white/8 rounded-2xl rounded-bl-sm px-4 py-3">
+                <div className="bg-white/6 border border-white/5 rounded-2xl rounded-bl-sm px-4 py-3">
                   <TypingDots />
                 </div>
               </div>
@@ -550,7 +550,7 @@ export default function ChatPage() {
           </div>
         </main>
 
-        <footer className="shrink-0 px-4 pb-4 pt-3 bg-base/80 backdrop-blur-sm border-t border-white/8">
+        <footer className="shrink-0 px-4 pb-4 pt-3 bg-base/80 backdrop-blur-sm">
           <div className="max-w-2xl mx-auto">
             <input type="file" ref={fileInputRef} accept="image/*" className="hidden" onChange={onFileChange} />
             <input type="file" ref={cameraInputRef} accept="image/*" capture="environment" className="hidden" onChange={onFileChange} />

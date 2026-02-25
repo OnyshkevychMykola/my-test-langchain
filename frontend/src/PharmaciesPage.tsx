@@ -129,9 +129,9 @@ export default function PharmaciesPage() {
   return (
     <div className="flex h-full bg-base">
       {/* Sidebar */}
-      <aside className="w-72 shrink-0 flex flex-col bg-surface border-r border-white/8">
+      <aside className="w-72 shrink-0 flex flex-col bg-surface border-r border-white/5">
         {/* Header */}
-        <div className="px-4 py-3 border-b border-white/8 flex items-center justify-between gap-2">
+        <div className="px-4 py-3 border-b border-white/5 flex items-center justify-between gap-2">
           <div>
             <h2 className="text-sm font-semibold text-white">Аптеки поруч</h2>
             {location && !loadingPharm && (
