@@ -3,6 +3,8 @@ import {
   Plus, Trash2, Send, Image, Camera, LogOut, Menu, X,
   MessageSquare, Search, MapPin, Pill,
 } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { useAuth } from './auth'
 import PharmaciesPage from './PharmaciesPage'
 
@@ -524,7 +526,15 @@ export default function ChatPage() {
                       className="rounded-xl mb-2 max-h-40 object-cover w-full"
                     />
                   )}
-                  <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+                  {msg.role === 'assistant' ? (
+                    <div className="prose-medical break-words">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {msg.content}
+                      </ReactMarkdown>
+                    </div>
+                  ) : (
+                    <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+                  )}
                 </div>
               </div>
             ))}

@@ -89,6 +89,115 @@
   40% { transform: translateY(-6px); opacity: 1; }
 }
 
+/* Markdown rendering in assistant messages */
+.prose-medical {
+  font-size: 0.875rem;
+  line-height: 1.65;
+  color: #e2e8f0;
+}
+
+.prose-medical p {
+  margin: 0 0 0.5em;
+}
+
+.prose-medical p:last-child {
+  margin-bottom: 0;
+}
+
+.prose-medical strong {
+  font-weight: 600;
+  color: #f1f5f9;
+}
+
+.prose-medical em {
+  font-style: italic;
+  color: #cbd5e1;
+}
+
+.prose-medical a {
+  color: #38bdf8;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.prose-medical a:hover {
+  color: #7dd3fc;
+}
+
+.prose-medical ul,
+.prose-medical ol {
+  margin: 0.4em 0 0.6em;
+  padding-left: 1.4em;
+}
+
+.prose-medical ul {
+  list-style-type: disc;
+}
+
+.prose-medical ol {
+  list-style-type: decimal;
+}
+
+.prose-medical li {
+  margin: 0.2em 0;
+}
+
+.prose-medical li > p {
+  margin: 0;
+}
+
+.prose-medical code {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 0.1em 0.4em;
+  font-size: 0.82em;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  color: #7dd3fc;
+}
+
+.prose-medical pre {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 0.75em 1em;
+  overflow-x: auto;
+  margin: 0.6em 0;
+}
+
+.prose-medical pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #e2e8f0;
+}
+
+.prose-medical blockquote {
+  border-left: 3px solid rgba(14, 165, 233, 0.5);
+  padding-left: 0.75em;
+  margin: 0.5em 0;
+  color: #94a3b8;
+}
+
+.prose-medical h1,
+.prose-medical h2,
+.prose-medical h3 {
+  font-weight: 600;
+  color: #f1f5f9;
+  margin: 0.6em 0 0.3em;
+  line-height: 1.3;
+}
+
+.prose-medical h1 { font-size: 1.1em; }
+.prose-medical h2 { font-size: 1.05em; }
+.prose-medical h3 { font-size: 1em; }
+
+.prose-medical hr {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  margin: 0.75em 0;
+}
+
 /* Leaflet dark overrides */
 .leaflet-popup-content-wrapper {
   background: #111827;
