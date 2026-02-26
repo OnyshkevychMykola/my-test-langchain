@@ -5,7 +5,7 @@ Context window: last N messages per conversation for LLM history.
 import sqlite3
 import os
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 from contextlib import contextmanager
 
@@ -14,6 +14,10 @@ DB_PATH = Path(__file__).resolve().parent / "medical_assistant.db"
 
 def _utc_now() -> str:
     return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _utc_today() -> str:
+    return datetime.utcnow().strftime("%Y-%m-%d")
 
 
 @contextmanager
@@ -61,6 +65,13 @@ def init_db():
                 expires_at TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 revoked INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS chat_usage_daily (
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                date_utc TEXT NOT NULL,
+                count INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (user_id, date_utc)
             );
 
             CREATE INDEX IF NOT EXISTS idx_conversations_user ON conversations(user_id);
@@ -265,3 +276,29 @@ def refresh_tokens_cleanup_expired() -> int:
     with get_conn() as conn:
         cur = conn.execute("DELETE FROM refresh_tokens WHERE expires_at <= ?", (now,))
         return cur.rowcount
+
+CHAT_DAILY_LIMIT = 5
+
+def chat_usage_get_for_user(user_id: int) -> dict:
+    """Return current daily usage for the user. resets_at is next midnight UTC (ISO string)."""
+    today = _utc_today()
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT count FROM chat_usage_daily WHERE user_id = ? AND date_utc = ?",
+            (user_id, today),
+        ).fetchone()
+    used = int(row["count"]) if row else 0
+    next_day = (datetime.utcnow().date() + timedelta(days=1)).strftime("%Y-%m-%d")
+    resets_at = f"{next_day} 00:00:00"
+    return {"used": used, "limit": CHAT_DAILY_LIMIT, "resets_at": resets_at}
+
+
+def chat_usage_increment(user_id: int) -> None:
+    """Increment today's usage count (insert or update)."""
+    today = _utc_today()
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO chat_usage_daily (user_id, date_utc, count) VALUES (?, ?, 1)
+               ON CONFLICT (user_id, date_utc) DO UPDATE SET count = count + 1""",
+            (user_id, today),
+        )

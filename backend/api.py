@@ -11,7 +11,7 @@ from typing import Optional
 
 from fastapi import Cookie, FastAPI, HTTPException, UploadFile, File, Form, Depends, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, JSONResponse
 from pydantic import BaseModel
 
 from chains import answer_query
@@ -31,6 +31,8 @@ from db import (
     refresh_token_store,
     refresh_token_is_valid,
     refresh_token_revoke,
+    chat_usage_get_for_user,
+    chat_usage_increment,
     CONTEXT_WINDOW_SIZE,
 )
 from auth import (
@@ -201,6 +203,13 @@ def auth_me(user_id: int = Depends(get_current_user_id)):
     return {"id": user["id"], "email": user["email"], "name": user["name"], "avatar_url": user["avatar_url"]}
 
 
+@app.get("/usage")
+def get_usage(user_id: int = Depends(get_current_user_id)):
+    """Return current user's daily chat usage (used, limit, resets_at UTC)."""
+    usage = chat_usage_get_for_user(user_id)
+    return usage
+
+
 # --- Conversations ---
 
 class ConversationOut(BaseModel):
@@ -274,12 +283,26 @@ def _ensure_conversation(conversation_id: Optional[int], user_id: int) -> int:
     return c["id"]
 
 
+def _check_usage_limit(user_id: int) -> Optional[JSONResponse]:
+    """Return 429 JSON response if daily limit reached, else None."""
+    usage = chat_usage_get_for_user(user_id)
+    if usage["used"] >= usage["limit"]:
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Daily limit reached", "resets_at": usage["resets_at"]},
+        )
+    return None
+
+
 @app.post("/chat/ask", response_model=ChatResponse)
 def chat_ask(
     req: ChatRequest,
     user_id: int = Depends(get_current_user_id),
-) -> ChatResponse:
+):
     """Ask a text-only question. Uses conversation_id for context (last N messages from DB)."""
+    limit_resp = _check_usage_limit(user_id)
+    if limit_resp is not None:
+        return limit_resp
     conv_id = _ensure_conversation(req.conversation_id, user_id)
     history_raw = messages_last_n_for_context(conv_id, n=CONTEXT_WINDOW_SIZE)
     history = [{"role": m["role"], "content": m["content"]} for m in history_raw]
@@ -287,6 +310,7 @@ def chat_ask(
         reply = answer_query(query=req.message, history=history)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    chat_usage_increment(user_id)
     _maybe_update_conversation_title(conv_id, user_id, req.message)
     message_add(conv_id, "user", req.message)
     message_add(conv_id, "assistant", reply)
@@ -301,6 +325,9 @@ async def chat_find(
     user_id: int = Depends(get_current_user_id),
 ) -> ChatResponse:
     """Find medicine by image. Saves to conversation with context window."""
+    limit_resp = _check_usage_limit(user_id)
+    if limit_resp is not None:
+        return limit_resp
     if not image.content_type or not image.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image")
     try:
@@ -319,6 +346,7 @@ async def chat_find(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+    chat_usage_increment(user_id)
     _maybe_update_conversation_title(conv_id, user_id, q)
     message_add(conv_id, "user", q)
     message_add(conv_id, "assistant", reply)

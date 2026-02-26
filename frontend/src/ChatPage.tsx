@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Plus, Trash2, Send, Image, Camera, LogOut, Menu, X,
-  MessageSquare, Search, MapPin, Pill,
+  MessageSquare, Search, MapPin, Pill, AlertCircle,
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -21,6 +21,12 @@ interface Conversation {
   title: string
   created_at: string
   updated_at: string
+}
+
+interface Usage {
+  used: number
+  limit: number
+  resets_at: string
 }
 
 function GlowOrb({ className }: { className?: string }) {
@@ -264,6 +270,7 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(false)
   const [pendingImage, setPendingImage] = useState<{ file: File; preview: string } | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [usage, setUsage] = useState<Usage | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
@@ -293,7 +300,13 @@ export default function ChatPage() {
     )
   }, [fetchWithAuth])
 
+  const loadUsage = useCallback(async () => {
+    const res = await fetchWithAuth('/usage')
+    if (res.ok) setUsage(await res.json())
+  }, [fetchWithAuth])
+
   useEffect(() => { loadConversations() }, [loadConversations])
+  useEffect(() => { loadUsage() }, [loadUsage])
 
   useEffect(() => {
     if (currentId !== null) loadMessages(currentId)
@@ -338,6 +351,7 @@ export default function ChatPage() {
     const text = input.trim()
     if (mode === 'ask' && !text) return
     if (mode === 'find' && !pendingImage) return
+    if (usageLimitReached) return
 
     const userContent = mode === 'find' ? (text || 'Що це за препарат?') : text
     setMessages((prev) => [
@@ -356,20 +370,32 @@ export default function ChatPage() {
         if (currentId != null) form.append('conversation_id', String(currentId))
 
         const res = await fetchWithAuth('/chat/find', { method: 'POST', body: form })
-        if (!res.ok) throw new Error(await res.text())
-        const data = await res.json()
+        const data = await res.json().catch(() => ({}))
+        if (res.status === 429) {
+          setUsage((u) => ({ used: u?.limit ?? 5, limit: u?.limit ?? 5, resets_at: data.resets_at ?? '' }))
+          setMessages((prev) => [...prev, { role: 'assistant', content: 'Денний ліміт запитів використано. Наступне оновлення — завтра о 00:00.' }])
+          return
+        }
+        if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Помилка запиту')
         if (currentId === null) { setCurrentId(data.conversation_id); loadConversations() } else loadConversations()
         setMessages((prev) => [...prev, { role: 'assistant', content: data.reply }])
+        loadUsage()
       } else {
         const res = await fetchWithAuth('/chat/ask', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message: text, conversation_id: currentId }),
         })
-        if (!res.ok) throw new Error(await res.text())
-        const data = await res.json()
+        const data = await res.json().catch(() => ({}))
+        if (res.status === 429) {
+          setUsage((u) => ({ used: u?.limit ?? 5, limit: u?.limit ?? 5, resets_at: data.resets_at ?? '' }))
+          setMessages((prev) => [...prev, { role: 'assistant', content: 'Денний ліміт запитів використано. Наступне оновлення — завтра о 00:00.' }])
+          return
+        }
+        if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Помилка запиту')
         if (currentId === null) { setCurrentId(data.conversation_id); loadConversations() } else loadConversations()
         setMessages((prev) => [...prev, { role: 'assistant', content: data.reply }])
+        loadUsage()
       }
     } catch (e) {
       setMessages((prev) => [
@@ -389,7 +415,8 @@ export default function ChatPage() {
     e.target.value = ''
   }
 
-  const canSend = mode === 'ask' ? !!input.trim() : !!pendingImage
+  const usageLimitReached = usage !== null && usage.used >= usage.limit
+  const canSend = (mode === 'ask' ? !!input.trim() : !!pendingImage) && !usageLimitReached
   const isNewEmptyChat = currentId !== null && messages.length === 0
   const userName = user?.name?.split(' ')[0] || ''
 
@@ -562,6 +589,18 @@ export default function ChatPage() {
 
         <footer className="shrink-0 px-4 pb-4 pt-3 bg-base/80 backdrop-blur-sm">
           <div className="max-w-2xl mx-auto">
+            {usageLimitReached && (
+              <div
+                className="flex items-center gap-2 rounded-xl px-4 py-3 mb-3 bg-amber-500/15 border border-amber-500/30 text-amber-200 text-sm animate-fade-in"
+                role="alert"
+              >
+                <AlertCircle className="w-5 h-5 shrink-0 text-amber-400" />
+                <p>
+                  Денний ліміт запитів використано ({usage?.used ?? 0}/{usage?.limit ?? 5}). Наступне оновлення — завтра о 00:00.
+                </p>
+              </div>
+            )}
+
             <input type="file" ref={fileInputRef} accept="image/*" className="hidden" onChange={onFileChange} />
             <input type="file" ref={cameraInputRef} accept="image/*" capture="environment" className="hidden" onChange={onFileChange} />
 
@@ -586,15 +625,16 @@ export default function ChatPage() {
               </div>
             )}
 
-            <div className="flex items-end gap-2 glass rounded-2xl p-2">
+            <div className={`flex items-end gap-2 glass rounded-2xl p-2 ${usageLimitReached ? 'opacity-70' : ''}`}>
               {mode === 'find' && (
                 <div className="flex items-center gap-1 pb-0.5">
                   <button
                     type="button"
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={() => !usageLimitReached && fileInputRef.current?.click()}
+                    disabled={usageLimitReached}
                     className="p-2.5 rounded-xl text-slate-400 hover:text-accent hover:bg-accent/10
                                focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-1 focus:ring-offset-surface
-                               transition-all duration-200 cursor-pointer"
+                               transition-all duration-200 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-slate-400 disabled:hover:bg-transparent"
                     title="З галереї"
                     aria-label="Обрати фото з галереї"
                   >
@@ -602,10 +642,11 @@ export default function ChatPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => cameraInputRef.current?.click()}
+                    onClick={() => !usageLimitReached && cameraInputRef.current?.click()}
+                    disabled={usageLimitReached}
                     className="p-2.5 rounded-xl text-slate-400 hover:text-accent hover:bg-accent/10
                                focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-1 focus:ring-offset-surface
-                               transition-all duration-200 cursor-pointer"
+                               transition-all duration-200 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-slate-400 disabled:hover:bg-transparent"
                     title="Зробити фото"
                     aria-label="Зробити фото камерою"
                   >
@@ -623,9 +664,10 @@ export default function ChatPage() {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAsk() }
                 }}
-                placeholder={mode === 'ask' ? 'Питання про ліки...' : `Опишіть питання (необов'язково)`}
+                placeholder={usageLimitReached ? 'Ліміт на сьогодні використано' : mode === 'ask' ? 'Питання про ліки...' : `Опишіть питання (необов'язково)`}
+                disabled={usageLimitReached}
                 className="flex-1 bg-transparent resize-none text-white placeholder-slate-500 text-sm
-                           focus:outline-none py-2 px-2 leading-relaxed"
+                           focus:outline-none py-2 px-2 leading-relaxed disabled:cursor-not-allowed disabled:opacity-80"
                 style={{ minHeight: '36px', maxHeight: '160px' }}
               />
 

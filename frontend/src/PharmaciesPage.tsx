@@ -192,11 +192,11 @@ export default function PharmaciesPage() {
                           transition-colors duration-150 cursor-pointer
                           focus:outline-none focus:ring-2 focus:ring-accent focus:ring-inset
                           ${selectedId === p.id
-                            ? 'bg-accent/10 border-l-2 border-l-accent'
+                            ? 'bg-amber-500/15 border-l-2 border-l-amber-400'
                             : 'hover:bg-white/5'
                           }`}
             >
-              <p className={`text-sm font-medium truncate ${selectedId === p.id ? 'text-accent' : 'text-white'}`}>
+              <p className={`text-sm font-medium truncate ${selectedId === p.id ? 'text-amber-400' : 'text-white'}`}>
                 {getPharmacyName(p)}
               </p>
               {getPharmacyAddress(p) && (
