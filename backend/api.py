@@ -6,12 +6,13 @@ Run: uvicorn api:app --reload
 import base64
 import os
 import secrets
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import Cookie, FastAPI, HTTPException, UploadFile, File, Form, Depends, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi.responses import RedirectResponse, JSONResponse, FileResponse
 from pydantic import BaseModel
 
 from chains import answer_query
@@ -26,6 +27,8 @@ from db import (
     conversation_delete,
     conversation_update_title,
     message_add,
+    message_get,
+    message_update_image_path,
     messages_list,
     messages_last_n_for_context,
     refresh_token_store,
@@ -59,9 +62,13 @@ app.add_middleware(
 )
 
 
+UPLOADS_DIR = Path(__file__).resolve().parent / "uploads"
+
+
 @app.on_event("startup")
 def startup():
     init_db()
+    UPLOADS_DIR.mkdir(exist_ok=True)
 
 
 def _is_production() -> bool:
@@ -247,7 +254,17 @@ def get_messages(
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
     msgs = messages_list(conversation_id, user_id)
-    return {"messages": [{"role": m["role"], "content": m["content"]} for m in msgs]}
+    return {
+        "messages": [
+            {
+                "id": m["id"],
+                "role": m["role"],
+                "content": m["content"],
+                "image_url": f"conversations/{conversation_id}/messages/{m['id']}/image" if m.get("image_path") else None,
+            }
+            for m in msgs
+        ]
+    }
 
 
 @app.delete("/conversations/{conversation_id}")
@@ -317,6 +334,36 @@ def chat_ask(
     return ChatResponse(reply=reply, conversation_id=conv_id)
 
 
+def _ext_for_content_type(content_type: Optional[str]) -> str:
+    if not content_type:
+        return "jpg"
+    if "png" in content_type:
+        return "png"
+    if "gif" in content_type:
+        return "gif"
+    if "webp" in content_type:
+        return "webp"
+    return "jpg"
+
+
+@app.get("/conversations/{conversation_id}/messages/{message_id}/image")
+def get_message_image(
+    conversation_id: int,
+    message_id: int,
+    user_id: int = Depends(get_current_user_id),
+):
+    """Serve stored image for a user message. Returns 404 if no image or not found."""
+    msg = message_get(message_id, conversation_id, user_id)
+    if not msg or not msg.get("image_path"):
+        raise HTTPException(status_code=404, detail="Image not found")
+    path = UPLOADS_DIR / str(conversation_id) / msg["image_path"]
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Image file not found")
+    ext = (msg["image_path"] or "").split(".")[-1].lower()
+    media_type = "image/png" if ext == "png" else "image/webp" if ext == "webp" else "image/gif" if ext == "gif" else "image/jpeg"
+    return FileResponse(path, media_type=media_type)
+
+
 @app.post("/chat/find", response_model=ChatResponse)
 async def chat_find(
     image: UploadFile = File(...),
@@ -324,7 +371,7 @@ async def chat_find(
     conversation_id: Optional[int] = Form(None),
     user_id: int = Depends(get_current_user_id),
 ) -> ChatResponse:
-    """Find medicine by image. Saves to conversation with context window."""
+    """Find medicine by image. Saves image and message to conversation."""
     limit_resp = _check_usage_limit(user_id)
     if limit_resp is not None:
         return limit_resp
@@ -348,6 +395,17 @@ async def chat_find(
 
     chat_usage_increment(user_id)
     _maybe_update_conversation_title(conv_id, user_id, q)
-    message_add(conv_id, "user", q)
+    user_msg = message_add(conv_id, "user", q)
+    message_id = user_msg["id"]
+    ext = _ext_for_content_type(image.content_type)
+    save_dir = UPLOADS_DIR / str(conv_id)
+    save_dir.mkdir(parents=True, exist_ok=True)
+    image_path = f"{message_id}.{ext}"
+    save_path = save_dir / image_path
+    try:
+        save_path.write_bytes(body)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save image: {e}")
+    message_update_image_path(message_id, conv_id, image_path)
     message_add(conv_id, "assistant", reply)
     return ChatResponse(reply=reply, conversation_id=conv_id)

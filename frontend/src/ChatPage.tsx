@@ -13,7 +13,10 @@ type Mode = 'find' | 'ask' | 'pharmacies'
 interface Message {
   role: 'user' | 'assistant'
   content: string
+  /** Local preview (blob URL) for just-sent message */
   imagePreview?: string
+  /** API URL path to load stored image (for messages from server) */
+  image_url?: string | null
 }
 
 interface Conversation {
@@ -45,6 +48,35 @@ function TypingDots() {
       <span className="w-2 h-2 rounded-full bg-accent dot-2" />
       <span className="w-2 h-2 rounded-full bg-accent dot-3" />
     </div>
+  )
+}
+
+/** Loads and displays a message image from API (auth required). */
+function MessageImage({ imageUrl, fetchWithAuth }: { imageUrl: string; fetchWithAuth: (url: string) => Promise<Response> }) {
+  const [src, setSrc] = useState<string | null>(null)
+  useEffect(() => {
+    let objectUrl: string | null = null
+    fetchWithAuth(imageUrl)
+      .then((res) => (res.ok ? res.blob() : null))
+      .then((blob) => {
+        if (blob) {
+          objectUrl = URL.createObjectURL(blob)
+          setSrc(objectUrl)
+        }
+      })
+      .catch(() => {})
+    return () => {
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [imageUrl, fetchWithAuth])
+
+  if (!src) return <div className="rounded-xl mb-2 max-h-40 h-20 bg-white/10 animate-pulse" aria-hidden />
+  return (
+    <img
+      src={src}
+      alt="Фото в повідомленні"
+      className="rounded-xl mb-2 max-h-40 object-cover w-full"
+    />
   )
 }
 
@@ -293,9 +325,10 @@ export default function ChatPage() {
     if (!res.ok) return
     const data = await res.json()
     setMessages(
-      (data.messages || []).map((m: { role: string; content: string }) => ({
+      (data.messages || []).map((m: { id?: number; role: string; content: string; image_url?: string | null }) => ({
         role: m.role as 'user' | 'assistant',
         content: m.content,
+        ...(m.image_url && { image_url: m.image_url }),
       }))
     )
   }, [fetchWithAuth])
@@ -414,6 +447,16 @@ export default function ChatPage() {
     setPendingImage({ file, preview: URL.createObjectURL(file) })
     e.target.value = ''
   }
+
+  const onPaste = useCallback((e: React.ClipboardEvent) => {
+    const item = Array.from(e.clipboardData?.items || []).find((i) => i.type.startsWith('image/'))
+    if (!item) return
+    const file = item.getAsFile()
+    if (!file) return
+    e.preventDefault()
+    setPendingImage({ file, preview: URL.createObjectURL(file) })
+    if (mode !== 'find') setMode('find')
+  }, [mode])
 
   const usageLimitReached = usage !== null && usage.used >= usage.limit
   const canSend = (mode === 'ask' ? !!input.trim() : !!pendingImage) && !usageLimitReached
@@ -546,12 +589,16 @@ export default function ChatPage() {
                       : undefined
                   }
                 >
-                  {msg.imagePreview && (
-                    <img
-                      src={msg.imagePreview}
-                      alt="Завантажене фото"
-                      className="rounded-xl mb-2 max-h-40 object-cover w-full"
-                    />
+                  {(msg.imagePreview || msg.image_url) && (
+                    msg.imagePreview ? (
+                      <img
+                        src={msg.imagePreview}
+                        alt="Завантажене фото"
+                        className="rounded-xl mb-2 max-h-40 object-cover w-full"
+                      />
+                    ) : (
+                      <MessageImage imageUrl={msg.image_url!} fetchWithAuth={fetchWithAuth} />
+                    )
                   )}
                   {msg.role === 'assistant' ? (
                     <div className="prose-medical break-words">
@@ -604,7 +651,7 @@ export default function ChatPage() {
             <input type="file" ref={fileInputRef} accept="image/*" className="hidden" onChange={onFileChange} />
             <input type="file" ref={cameraInputRef} accept="image/*" capture="environment" className="hidden" onChange={onFileChange} />
 
-            {pendingImage && mode === 'find' && (
+            {pendingImage && (
               <div className="relative inline-block mb-3">
                 <img
                   src={pendingImage.preview}
@@ -661,10 +708,11 @@ export default function ChatPage() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onInput={handleTextareaInput}
+                onPaste={onPaste}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAsk() }
                 }}
-                placeholder={usageLimitReached ? 'Ліміт на сьогодні використано' : mode === 'ask' ? 'Питання про ліки...' : `Опишіть питання (необов'язково)`}
+                placeholder={usageLimitReached ? 'Ліміт на сьогодні використано' : mode === 'ask' ? 'Питання про ліки...' : `Опишіть питання або вставте фото (Ctrl+V)`}
                 disabled={usageLimitReached}
                 className="flex-1 bg-transparent resize-none text-white placeholder-slate-500 text-sm
                            focus:outline-none py-2 px-2 leading-relaxed disabled:cursor-not-allowed disabled:opacity-80"

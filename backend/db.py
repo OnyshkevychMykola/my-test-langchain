@@ -56,7 +56,8 @@ def init_db():
                 conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
                 role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
                 content TEXT NOT NULL,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                image_path TEXT
             );
 
             CREATE TABLE IF NOT EXISTS refresh_tokens (
@@ -78,6 +79,11 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
             CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
         """)
+        # Migration: add image_path to messages if missing (existing DBs)
+        try:
+            conn.execute("ALTER TABLE messages ADD COLUMN image_path TEXT")
+        except sqlite3.OperationalError:
+            pass
 
 
 # --- Users ---
@@ -199,16 +205,37 @@ def conversation_delete(conversation_id: int, user_id: int) -> bool:
 CONTEXT_WINDOW_SIZE = 20  # last N messages to load as history for LLM
 
 
-def message_add(conversation_id: int, role: str, content: str) -> dict:
+def message_add(conversation_id: int, role: str, content: str, image_path: Optional[str] = None) -> dict:
     now = _utc_now()
     with get_conn() as conn:
         cur = conn.execute(
-            "INSERT INTO messages (conversation_id, role, content, created_at) VALUES (?, ?, ?, ?)",
-            (conversation_id, role, content, now),
+            "INSERT INTO messages (conversation_id, role, content, created_at, image_path) VALUES (?, ?, ?, ?, ?)",
+            (conversation_id, role, content, now, image_path),
         )
         mid = cur.lastrowid
     conversation_update_updated_at(conversation_id)
-    return {"id": mid, "conversation_id": conversation_id, "role": role, "content": content, "created_at": now}
+    return {"id": mid, "conversation_id": conversation_id, "role": role, "content": content, "created_at": now, "image_path": image_path}
+
+
+def message_update_image_path(message_id: int, conversation_id: int, image_path: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE messages SET image_path = ? WHERE id = ? AND conversation_id = ?",
+            (image_path, message_id, conversation_id),
+        )
+
+
+def message_get(message_id: int, conversation_id: int, user_id: int) -> Optional[dict]:
+    """Get a single message; returns None if conversation does not belong to user."""
+    with get_conn() as conn:
+        row = conn.execute(
+            """SELECT m.id, m.conversation_id, m.role, m.content, m.created_at, m.image_path
+               FROM messages m
+               JOIN conversations c ON c.id = m.conversation_id
+               WHERE m.id = ? AND m.conversation_id = ? AND c.user_id = ?""",
+            (message_id, conversation_id, user_id),
+        ).fetchone()
+    return dict(row) if row else None
 
 
 def messages_list(conversation_id: int, user_id: int, limit: Optional[int] = None) -> list[dict]:
@@ -218,7 +245,7 @@ def messages_list(conversation_id: int, user_id: int, limit: Optional[int] = Non
         conv = conn.execute("SELECT id FROM conversations WHERE id = ? AND user_id = ?", (conversation_id, user_id)).fetchone()
         if not conv:
             return []
-        sql = "SELECT id, conversation_id, role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY id ASC"
+        sql = "SELECT id, conversation_id, role, content, created_at, image_path FROM messages WHERE conversation_id = ? ORDER BY id ASC"
         if limit:
             sql += f" LIMIT {int(limit)}"
         rows = conn.execute(sql, (conversation_id,)).fetchall()
@@ -230,7 +257,7 @@ def messages_last_n_for_context(conversation_id: int, n: int = CONTEXT_WINDOW_SI
     with get_conn() as conn:
         # Subquery: get last N ids, then order by id ASC for chronological history
         rows = conn.execute("""
-            SELECT id, conversation_id, role, content, created_at
+            SELECT id, conversation_id, role, content, created_at, image_path
             FROM messages
             WHERE conversation_id = ?
             ORDER BY id DESC

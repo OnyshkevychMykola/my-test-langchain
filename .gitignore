@@ -8,3 +8,4 @@
 venv
 .idea
 medical_assistant.db
+backend/uploads
