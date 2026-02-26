@@ -50,17 +50,38 @@ def image_to_base64(file) -> str:
     return base64.b64encode(file).decode("utf-8")
 
 
-def _is_medical_query(query: str) -> bool:
-    """Returns True if the query is about medicine/health (for validation)."""
+VALIDATION_HISTORY_LIMIT = 12  # last N messages to include for context (6 exchanges)
+
+
+def _is_medical_query(query: str, history=None) -> bool:
+    """Returns True if the query is about medicine/health. Uses conversation history for context."""
     if not (query and query.strip()):
         return False
     prompt = _load_prompt("validation")
     if not prompt:
         return True
+
+    history_messages = _get_history_messages(history) if history else []
+    # Take last N messages so validator sees recent context (e.g. "а які аналоги?" after drug question)
+    recent = history_messages[-VALIDATION_HISTORY_LIMIT:] if history_messages else []
+
+    if not recent:
+        user_content = query.strip()[:500]
+    else:
+        context_lines = []
+        for m in recent:
+            role = "Користувач" if (getattr(m, "type", None) == "human") else "Асистент"
+            text = (getattr(m, "content", None) or (m.get("content", "") if isinstance(m, dict) else ""))[:300]
+            context_lines.append(f"{role}: {text}")
+        context_block = "\n".join(context_lines)
+        user_content = (
+            "Контекст розмови:\n" + context_block + "\n\nПоточне повідомлення користувача: " + query.strip()[:500]
+        )
+
     response = llm.invoke(
         [
             {"role": "system", "content": prompt},
-            {"role": "user", "content": query.strip()[:500]},
+            {"role": "user", "content": user_content},
         ]
     )
     answer = (response.content or "").strip().upper()
@@ -159,8 +180,14 @@ def _get_history_messages(history) -> list:
     """Normalize history to list of LangChain messages (for agent)."""
     if hasattr(history, "messages"):
         return list(history.messages)
+    if isinstance(history, list) and history:
+        # Already LangChain messages (have .type); dicts from API have "role" key
+        first = history[0]
+        if isinstance(first, dict):
+            return _messages_from_history(history)
+        return list(history)
     if isinstance(history, list):
-        return _messages_from_history(history)
+        return []
     return []
 
 
@@ -189,10 +216,10 @@ def answer_query(
             history_messages=h,
         )
 
-    if not _is_medical_query(query):
+    messages = _get_history_messages(history)
+    if not _is_medical_query(query, history=messages):
         return NON_MEDICAL_REPLY
 
-    messages = _get_history_messages(history)
     messages.append(HumanMessage(content=query))
 
     result = agent.invoke({"messages": messages})
