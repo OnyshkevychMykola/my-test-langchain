@@ -189,6 +189,8 @@ class ChatRequest(BaseModel):
     message: str
     conversation_id: Optional[int] = None
     history: list[ChatMessage] = []  # optional; if conversation_id set, history loaded from DB
+    user_latitude: Optional[float] = None
+    user_longitude: Optional[float] = None
 
 
 class ChatResponse(BaseModel):
@@ -323,13 +325,18 @@ def chat_ask(
     conv_id = _ensure_conversation(req.conversation_id, user_id)
     history_raw = messages_last_n_for_context(conv_id, n=CONTEXT_WINDOW_SIZE)
     history = [{"role": m["role"], "content": m["content"]} for m in history_raw]
+
+    query_for_agent = req.message
+    if req.user_latitude is not None and req.user_longitude is not None:
+        query_for_agent = f"[Геолокація: {req.user_latitude}, {req.user_longitude}]\n{req.message}"
+
     try:
-        reply = answer_query(query=req.message, history=history)
+        reply = answer_query(query=query_for_agent, history=history)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     chat_usage_increment(user_id)
     _maybe_update_conversation_title(conv_id, user_id, req.message)
-    message_add(conv_id, "user", req.message)
+    message_add(conv_id, "user", req.message)  # save original message without geo prefix
     message_add(conv_id, "assistant", reply)
     return ChatResponse(reply=reply, conversation_id=conv_id)
 

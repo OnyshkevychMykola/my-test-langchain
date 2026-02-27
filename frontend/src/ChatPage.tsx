@@ -303,6 +303,8 @@ export default function ChatPage() {
   const [pendingImage, setPendingImage] = useState<{ file: File; preview: string } | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [usage, setUsage] = useState<Usage | null>(null)
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const [locationError, setLocationError] = useState<string | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
@@ -337,6 +339,23 @@ export default function ChatPage() {
     const res = await fetchWithAuth('/usage')
     if (res.ok) setUsage(await res.json())
   }, [fetchWithAuth])
+
+  const requestLocation = useCallback(() => {
+    if (!navigator.geolocation) {
+      setLocationError('Геолокація не підтримується браузером')
+      return
+    }
+    setLocationError(null)
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude })
+      },
+      (err) => {
+        setLocationError(err.code === 1 ? 'Дозвіл на геолокацію відхилено' : 'Не вдалося визначити місце')
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
+    )
+  }, [])
 
   useEffect(() => { loadConversations() }, [loadConversations])
   useEffect(() => { loadUsage() }, [loadUsage])
@@ -414,10 +433,18 @@ export default function ChatPage() {
         setMessages((prev) => [...prev, { role: 'assistant', content: data.reply }])
         loadUsage()
       } else {
+        const body: { message: string; conversation_id: number | null; user_latitude?: number; user_longitude?: number } = {
+          message: text,
+          conversation_id: currentId,
+        }
+        if (userLocation) {
+          body.user_latitude = userLocation.lat
+          body.user_longitude = userLocation.lng
+        }
         const res = await fetchWithAuth('/chat/ask', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text, conversation_id: currentId }),
+          body: JSON.stringify(body),
         })
         const data = await res.json().catch(() => ({}))
         if (res.status === 429) {
@@ -645,6 +672,33 @@ export default function ChatPage() {
                 <p>
                   Денний ліміт запитів використано ({usage?.used ?? 0}/{usage?.limit ?? 5}). Наступне оновлення — завтра о 00:00.
                 </p>
+              </div>
+            )}
+
+            {mode === 'ask' && (
+              <div className="flex flex-wrap items-center gap-2 mb-3">
+                {userLocation ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 bg-accent/15 border border-accent/25 text-accent text-xs">
+                    <MapPin className="w-3.5 h-3.5" />
+                    Геолокацію визначено — ціни в аптеках поруч будуть враховані
+                  </span>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={requestLocation}
+                      className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 bg-white/5 border border-white/10 text-slate-400 hover:text-accent hover:border-accent/30 hover:bg-accent/10 text-xs transition-all duration-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-1 focus:ring-offset-base"
+                      title="Дозволити геолокацію для пошуку цін в аптеках поруч"
+                    >
+                      <MapPin className="w-3.5 h-3.5" />
+                      Шукати ціни поруч
+                    </button>
+                    <span className="text-slate-500 text-xs">Дозвольте геолокацію, щоб отримувати ціни в аптеках у радіусі 2 км.</span>
+                  </>
+                )}
+                {locationError && (
+                  <span className="text-amber-400/90 text-xs">{locationError}</span>
+                )}
               </div>
             )}
 

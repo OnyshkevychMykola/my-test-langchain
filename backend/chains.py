@@ -11,6 +11,9 @@ from langchain_community.agent_toolkits.load_tools import load_tools
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.messages import HumanMessage, AIMessage
 
+# Import pharmacy prices tool
+from tools.pharmacy_prices_tool import pharmacy_prices_lookup
+
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
@@ -161,7 +164,7 @@ Contraindications: {item.get('contraindications', ['N/A'])[0][:500]}
         return f"Error querying drug database: {str(e)}"
 
 
-tools = [medical_image_analysis_tool, drug_lookup, duckduckgo_tool] + load_tools(["wikipedia"])
+tools = [medical_image_analysis_tool, drug_lookup, pharmacy_prices_lookup, duckduckgo_tool] + load_tools(["wikipedia"])
 
 _system_prompt = _load_prompt("system")
 system_prompt = _system_prompt or (
