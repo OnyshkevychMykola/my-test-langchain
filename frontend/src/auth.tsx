@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback, ReactNode } from 'react'
 
-const API_BASE = '/api'
+const API_BASE = import.meta.env.VITE_API_BASE ?? '/api'
 const TOKEN_KEY = 'medical_ai_token'
 /** Refresh the access token this many milliseconds before it expires. */
 const REFRESH_BEFORE_MS = 60_000

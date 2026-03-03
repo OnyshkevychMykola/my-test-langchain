@@ -74,7 +74,8 @@ export default function PharmaciesPage() {
     setLoadingPharm(true)
     try {
       const query = `[out:json];node["amenity"="pharmacy"](around:2000,${lat},${lon});out body;`
-      const res = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: query })
+      const overpassUrl = import.meta.env.VITE_OVERPASS_API_URL ?? 'https://overpass-api.de/api/interpreter'
+      const res = await fetch(overpassUrl, { method: 'POST', body: query })
       if (!res.ok) throw new Error('Не вдалося отримати дані аптек')
       const data = await res.json()
       setPharmacies(data.elements || [])
