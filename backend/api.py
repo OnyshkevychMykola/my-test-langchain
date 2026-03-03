@@ -1,18 +1,21 @@
 """
 FastAPI backend for Medical AI Assistant.
 Auth: Google OAuth + JWT. Data: SQLite (users → conversations → messages).
+Images: Cloudinary.
 Run: uvicorn api:app --reload
 """
 import base64
 import os
 import secrets
-from pathlib import Path
 from datetime import datetime, timedelta, timezone
+from io import BytesIO
 from typing import Optional
 
+import cloudinary
+import cloudinary.uploader
 from fastapi import Cookie, FastAPI, HTTPException, UploadFile, File, Form, Depends, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse, JSONResponse, FileResponse
+from fastapi.responses import RedirectResponse, JSONResponse
 from pydantic import BaseModel
 
 from chains import answer_query
@@ -62,13 +65,19 @@ app.add_middleware(
 )
 
 
-UPLOADS_DIR = Path(__file__).resolve().parent / "uploads"
-
-
 @app.on_event("startup")
 def startup():
     init_db()
-    UPLOADS_DIR.mkdir(exist_ok=True)
+    cloud_name = os.getenv("CLOUDINARY_CLOUD_NAME")
+    api_key = os.getenv("CLOUDINARY_API_KEY")
+    api_secret = os.getenv("CLOUDINARY_API_SECRET")
+    if cloud_name and api_key and api_secret:
+        cloudinary.config(
+            cloud_name=cloud_name,
+            api_key=api_key,
+            api_secret=api_secret,
+            secure=True,
+        )
 
 
 def _is_production() -> bool:
@@ -353,22 +362,41 @@ def _ext_for_content_type(content_type: Optional[str]) -> str:
     return "jpg"
 
 
+def _upload_image_to_cloudinary(image_bytes: bytes, public_id: str, resource_type: str = "image") -> str:
+    """Upload image bytes to Cloudinary; returns secure_url. Raises HTTPException on failure."""
+    if not all([os.getenv("CLOUDINARY_CLOUD_NAME"), os.getenv("CLOUDINARY_API_KEY"), os.getenv("CLOUDINARY_API_SECRET")]):
+        raise HTTPException(status_code=503, detail="Cloudinary is not configured")
+    try:
+        result = cloudinary.uploader.upload(
+            BytesIO(image_bytes),
+            public_id=public_id,
+            resource_type=resource_type,
+            folder="medical-bot",
+        )
+        url = result.get("secure_url")
+        if not url:
+            raise HTTPException(status_code=500, detail="Cloudinary did not return URL")
+        return url
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to upload image: {e}")
+
+
 @app.get("/conversations/{conversation_id}/messages/{message_id}/image")
 def get_message_image(
     conversation_id: int,
     message_id: int,
     user_id: int = Depends(get_current_user_id),
 ):
-    """Serve stored image for a user message. Returns 404 if no image or not found."""
+    """Redirect to stored image URL (Cloudinary). Returns 404 if no image or not found."""
     msg = message_get(message_id, conversation_id, user_id)
     if not msg or not msg.get("image_path"):
         raise HTTPException(status_code=404, detail="Image not found")
-    path = UPLOADS_DIR / str(conversation_id) / msg["image_path"]
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="Image file not found")
-    ext = (msg["image_path"] or "").split(".")[-1].lower()
-    media_type = "image/png" if ext == "png" else "image/webp" if ext == "webp" else "image/gif" if ext == "gif" else "image/jpeg"
-    return FileResponse(path, media_type=media_type)
+    image_path = msg["image_path"]
+    if image_path.startswith("http://") or image_path.startswith("https://"):
+        return RedirectResponse(url=image_path, status_code=302)
+    raise HTTPException(status_code=404, detail="Image not found")
 
 
 @app.post("/chat/find", response_model=ChatResponse)
@@ -405,14 +433,8 @@ async def chat_find(
     user_msg = message_add(conv_id, "user", q)
     message_id = user_msg["id"]
     ext = _ext_for_content_type(image.content_type)
-    save_dir = UPLOADS_DIR / str(conv_id)
-    save_dir.mkdir(parents=True, exist_ok=True)
-    image_path = f"{message_id}.{ext}"
-    save_path = save_dir / image_path
-    try:
-        save_path.write_bytes(body)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save image: {e}")
-    message_update_image_path(message_id, conv_id, image_path)
+    public_id = f"conv_{conv_id}_msg_{message_id}.{ext}"
+    image_url = _upload_image_to_cloudinary(body, public_id)
+    message_update_image_path(message_id, conv_id, image_url)
     message_add(conv_id, "assistant", reply)
     return ChatResponse(reply=reply, conversation_id=conv_id)
