@@ -2,6 +2,15 @@ import { createContext, useContext, useEffect, useRef, useState, useCallback, Re
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? '/api'
 const TOKEN_KEY = 'medical_ai_token'
+
+/** Build full URL for an API path. Handles both relative (/api) and absolute (https://...) API_BASE. */
+function apiUrl(path: string): string {
+  const p = path.replace(/^\//, '')
+  const base = API_BASE.startsWith('http')
+    ? API_BASE.replace(/\/$/, '')
+    : `${window.location.origin}${API_BASE.startsWith('/') ? API_BASE : `/${API_BASE}`}`.replace(/\/$/, '')
+  return `${base}/${p}`
+}
 /** Refresh the access token this many milliseconds before it expires. */
 const REFRESH_BEFORE_MS = 60_000
 
@@ -81,7 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const doRefresh = useCallback(async (): Promise<string | null> => {
     if (refreshPromiseRef.current) return refreshPromiseRef.current
 
-    const promise = fetch(`${API_BASE}/auth/refresh`, {
+    const promise = fetch(apiUrl('auth/refresh'), {
       method: 'POST',
       credentials: 'include',
     }).then(async (res) => {
@@ -129,7 +138,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const headers = new Headers(options.headers)
       if (currentToken) headers.set('Authorization', `Bearer ${currentToken}`)
-      const fullUrl = url.startsWith('http') ? url : `${API_BASE}/${url.replace(/^\//, '')}`
+      const fullUrl = url.startsWith('http') ? url : apiUrl(url)
 
       let res = await fetch(fullUrl, { ...options, headers, credentials: 'include' })
 
@@ -159,7 +168,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return
     }
     try {
-      const res = await fetch(`${API_BASE}/auth/me`, {
+      const res = await fetch(apiUrl('auth/me'), {
         headers: { Authorization: `Bearer ${t}` },
         credentials: 'include',
       })
@@ -171,7 +180,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const refreshed = await doRefresh()
         if (refreshed) {
           storeToken(refreshed)
-          const retry = await fetch(`${API_BASE}/auth/me`, {
+          const retry = await fetch(apiUrl('auth/me'), {
             headers: { Authorization: `Bearer ${refreshed}` },
             credentials: 'include',
           })
@@ -204,7 +213,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const login = () => {
-    window.location.href = `${window.location.origin}${API_BASE}/auth/google`
+    window.location.href = apiUrl('auth/google')
   }
 
   const logout = useCallback(async () => {
@@ -213,7 +222,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (t) {
       // Best-effort server-side revocation
       try {
-        await fetch(`${API_BASE}/auth/logout`, {
+        await fetch(apiUrl('auth/logout'), {
           method: 'POST',
           credentials: 'include',
           headers: { Authorization: `Bearer ${t}` },
