@@ -188,7 +188,7 @@ function WelcomeScreen({ mode, onModeChange, userName }: {
 function SidebarContent({
   user, conversations, currentId, onNewChat, onSelectConversation, onDeleteConversation, onLogout,
 }: {
-  user: { name?: string; email?: string; avatar_url?: string } | null
+  user: { name?: string; email?: string; avatar_url?: string | null } | null
   conversations: Conversation[]
   currentId: number | null
   onNewChat: () => void
