@@ -156,28 +156,27 @@ cache_manager = CacheManager()
 rate_limiter = RateLimiter()
 
 def cached_pharmacy_search(cache_enabled: bool = True):
-    """Декоратор для кешування результатів пошуку аптек"""
+    """Декоратор для кешування результатів пошуку аптек (для методів класу: self, drug_name, user_lat, user_lng)."""
     def decorator(func):
         @wraps(func)
-        def wrapper(drug_name: str, user_lat: Optional[float] = None, 
+        def wrapper(self, drug_name: str, user_lat: Optional[float] = None,
                    user_lng: Optional[float] = None, *args, **kwargs):
-            
             # Спробуємо отримати з кешу
             if cache_enabled:
                 cached_result = cache_manager.get(drug_name, user_lat, user_lng)
                 if cached_result:
-                    return cached_result['data']
-            
+                    data = cached_result['data']
+                    # JSON зберігає tuple як list — повертаємо tuple для узгодженості
+                    if isinstance(data, list) and len(data) == 2:
+                        return (data[0], data[1])
+                    return data
             # Rate limiting перед запитом
             rate_limiter.wait_if_needed()
-            
-            # Виконуємо функцію
-            result = func(drug_name, user_lat, user_lng, *args, **kwargs)
-            
-            # Кешуємо результат
-            if cache_enabled and result:
+            # Виконуємо метод
+            result = func(self, drug_name, user_lat, user_lng, *args, **kwargs)
+            # Кешуємо тільки дані (tuple/list/dict), не об'єкт self
+            if cache_enabled and result is not None:
                 cache_manager.set(drug_name, result, user_lat, user_lng)
-            
             return result
         return wrapper
     return decorator
