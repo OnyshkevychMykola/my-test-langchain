@@ -23,6 +23,8 @@ from db import (
     init_db,
     user_get_by_id,
     user_get_or_create,
+    user_get_by_email,
+    user_create_email,
     conversation_create,
     conversation_list,
     conversation_get,
@@ -52,7 +54,19 @@ from auth import (
     get_current_user_id,
     FRONTEND_URL,
     REFRESH_TOKEN_EXPIRE_DAYS,
+    hash_password,
+    verify_password,
 )
+
+class EmailRegisterRequest(BaseModel):
+    email: str
+    password: str
+    name: Optional[str] = None
+
+
+class EmailLoginRequest(BaseModel):
+    email: str
+    password: str
 
 app = FastAPI(title="Medical AI Assistant API")
 
@@ -140,6 +154,58 @@ async def auth_google_callback(code: Optional[str] = None, state: Optional[str] 
     response = RedirectResponse(url=f"{FRONTEND_URL}#token={access_token}")
     _set_refresh_cookie(response, refresh_token)
     return response
+
+
+@app.post("/auth/register")
+def auth_register(req: EmailRegisterRequest, response: Response):
+    """Register a new user with email + password and return access token."""
+    email = (req.email or "").strip().lower()
+    password = (req.password or "").strip()
+    name = (req.name or "").strip() or None
+
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Некоректна email-адреса")
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Пароль має містити щонайменше 8 символів")
+
+    existing = user_get_by_email(email)
+    if existing and existing.get("password_hash"):
+        raise HTTPException(status_code=400, detail="Користувач з таким email вже існує")
+
+    pwd_hash = hash_password(password)
+    user = user_create_email(email=email, password_hash=pwd_hash, name=name)
+
+    access_token = create_access_token(user["id"], user["google_id"])
+    jti, refresh_token = create_refresh_token(user["id"])
+    expires_at = (datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
+    refresh_token_store(jti, user["id"], expires_at)
+
+    _set_refresh_cookie(response, refresh_token)
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
+@app.post("/auth/login")
+def auth_login(req: EmailLoginRequest, response: Response):
+    """Login with email + password and return access token."""
+    email = (req.email or "").strip().lower()
+    password = (req.password or "").strip()
+
+    if not email or "@" not in email or not password:
+        raise HTTPException(status_code=400, detail="Некоректні облікові дані")
+
+    user = user_get_by_email(email)
+    stored_hash = (user or {}).get("password_hash") if user else None
+    if not user or not stored_hash or not isinstance(stored_hash, str) or not verify_password(password, stored_hash):
+        # Do not reveal whether email exists
+        raise HTTPException(status_code=401, detail="Невірний email або пароль")
+
+    access_token = create_access_token(user["id"], user["google_id"])
+    jti, refresh_token = create_refresh_token(user["id"])
+    expires_at = (datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
+    refresh_token_store(jti, user["id"], expires_at)
+
+    _set_refresh_cookie(response, refresh_token)
+    return {"access_token": access_token, "token_type": "bearer"}
 
 
 @app.post("/auth/refresh")

@@ -16,6 +16,7 @@ import httpx
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import jwt
+import bcrypt
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -45,6 +46,26 @@ JWT_ALGORITHM = "HS256"
 JWT_ISSUER = "medical-ai"
 
 security = HTTPBearer(auto_error=False)
+
+
+def _normalize_password(password: str) -> bytes:
+    """Pre-hash with SHA-256 so bcrypt never receives more than 64 bytes."""
+    return hashlib.sha256(password.encode("utf-8")).hexdigest().encode("utf-8")
+
+
+def hash_password(password: str) -> str:
+    """Hash a plaintext password for storage."""
+    normalized = _normalize_password(password)
+    return bcrypt.hashpw(normalized, bcrypt.gensalt()).decode("utf-8")
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a plaintext password against a stored hash."""
+    try:
+        normalized = _normalize_password(plain_password)
+        return bcrypt.checkpw(normalized, hashed_password.encode("utf-8"))
+    except Exception:
+        return False
 
 
 # --- OAuth state CSRF protection ---

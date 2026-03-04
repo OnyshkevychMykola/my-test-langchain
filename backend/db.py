@@ -84,6 +84,12 @@ def init_db():
             conn.execute("ALTER TABLE messages ADD COLUMN image_path TEXT")
         except sqlite3.OperationalError:
             pass
+        # Migration: add password_hash column for email+password auth (existing DBs)
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+        except sqlite3.OperationalError:
+            # Column already exists
+            pass
 
 
 # --- Users ---
@@ -122,6 +128,41 @@ def user_get_or_create(google_id: str, email: Optional[str] = None, name: Option
     if u:
         return u
     return user_create(google_id, email, name, avatar_url)
+
+
+def user_get_by_email(email: str) -> Optional[dict]:
+    """Return user record by email (case-insensitive), including password_hash for auth."""
+    email_normalized = email.strip().lower()
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, google_id, email, name, avatar_url, created_at, password_hash FROM users WHERE lower(email) = ?",
+            (email_normalized,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def user_create_email(email: str, password_hash: str, name: Optional[str] = None) -> dict:
+    """
+    Create a user for email+password auth.
+    Uses a synthetic google_id ('email:<email>') to satisfy the NOT NULL + UNIQUE constraint.
+    """
+    now = _utc_now()
+    email_normalized = email.strip().lower()
+    synthetic_google_id = f"email:{email_normalized}"
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO users (google_id, email, name, avatar_url, created_at, password_hash) VALUES (?, ?, ?, ?, ?, ?)",
+            (synthetic_google_id, email_normalized, name or "", "", now, password_hash),
+        )
+        uid = cur.lastrowid
+    return {
+        "id": uid,
+        "google_id": synthetic_google_id,
+        "email": email_normalized,
+        "name": name,
+        "avatar_url": "",
+        "created_at": now,
+    }
 
 
 # --- Conversations ---

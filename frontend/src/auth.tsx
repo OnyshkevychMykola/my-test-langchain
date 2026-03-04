@@ -25,7 +25,11 @@ interface AuthContextType {
   token: string | null
   user: User | null
   loading: boolean
+  /** Legacy Google login shortcut (alias for loginWithGoogle). */
   login: () => void
+  loginWithGoogle: () => void
+  loginWithEmail: (email: string, password: string) => Promise<void>
+  registerWithEmail: (name: string, email: string, password: string) => Promise<void>
   logout: () => void
   fetchWithAuth: (url: string, options?: RequestInit) => Promise<Response>
 }
@@ -212,9 +216,60 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return clearRefreshTimer
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const login = () => {
+  const loginWithGoogle = () => {
     window.location.href = apiUrl('auth/google')
   }
+
+  const handleAuthResponse = useCallback(
+    async (res: Response) => {
+      if (!res.ok) {
+        let message = 'Помилка авторизації'
+        try {
+          const data = await res.json()
+          if (typeof data.detail === 'string') {
+            message = data.detail
+          }
+        } catch {
+          // ignore JSON parse errors
+        }
+        throw new Error(message)
+      }
+      const data = await res.json()
+      const accessToken = (data as { access_token?: string }).access_token
+      if (!accessToken) {
+        throw new Error('Відповідь сервера не містить токена доступу')
+      }
+      storeToken(accessToken)
+      await loadUser()
+    },
+    [storeToken, loadUser]
+  )
+
+  const loginWithEmail = useCallback(
+    async (email: string, password: string) => {
+      const res = await fetch(apiUrl('auth/login'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ email, password }),
+      })
+      await handleAuthResponse(res)
+    },
+    [handleAuthResponse]
+  )
+
+  const registerWithEmail = useCallback(
+    async (name: string, email: string, password: string) => {
+      const res = await fetch(apiUrl('auth/register'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ name, email, password }),
+      })
+      await handleAuthResponse(res)
+    },
+    [handleAuthResponse]
+  )
 
   const logout = useCallback(async () => {
     clearRefreshTimer()
@@ -241,7 +296,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         token: token ?? localStorage.getItem(TOKEN_KEY),
         user,
         loading,
-        login,
+        login: loginWithGoogle,
+        loginWithGoogle,
+        loginWithEmail,
+        registerWithEmail,
         logout,
         fetchWithAuth,
       }}
