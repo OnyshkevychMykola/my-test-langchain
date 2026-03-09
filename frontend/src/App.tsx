@@ -1,3 +1,4 @@
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './auth'
 import LoginPage from './LoginPage'
 import ChatPage from './ChatPage'
@@ -20,7 +21,13 @@ function AppContent() {
     return <LoginPage />
   }
 
-  return <ChatPage />
+  return (
+    <Routes>
+      <Route path="/" element={<ChatPage />} />
+      <Route path="/:conversationId" element={<ChatPage />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  )
 }
 
 function App() {

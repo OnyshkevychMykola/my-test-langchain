@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
 import {
   Plus, Trash2, Send, Image, Camera, LogOut, Menu, X,
   MessageSquare, Search, MapPin, Pill, AlertCircle,
@@ -294,9 +295,14 @@ function SidebarContent({
 
 export default function ChatPage() {
   const { user, logout, fetchWithAuth } = useAuth()
+  const { conversationId: convIdParam } = useParams<{ conversationId?: string }>()
+  const navigate = useNavigate()
+
+  const currentId = convIdParam ? (parseInt(convIdParam, 10) || null) : null
+
   const [mode, setMode] = useState<Mode>('ask')
   const [conversations, setConversations] = useState<Conversation[]>([])
-  const [currentId, setCurrentId] = useState<number | null>(null)
+  const [conversationsLoaded, setConversationsLoaded] = useState(false)
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -320,6 +326,7 @@ export default function ChatPage() {
   const loadConversations = useCallback(async () => {
     const res = await fetchWithAuth('/conversations')
     if (res.ok) setConversations(await res.json())
+    setConversationsLoaded(true)
   }, [fetchWithAuth])
 
   const loadMessages = useCallback(async (convId: number) => {
@@ -361,6 +368,13 @@ export default function ChatPage() {
   useEffect(() => { loadUsage() }, [loadUsage])
 
   useEffect(() => {
+    if (!conversationsLoaded) return
+    if (currentId !== null && !conversations.some((c) => c.id === currentId)) {
+      navigate('/', { replace: true })
+    }
+  }, [conversationsLoaded, conversations, currentId, navigate])
+
+  useEffect(() => {
     if (currentId !== null) loadMessages(currentId)
     else setMessages([])
   }, [currentId, loadMessages])
@@ -381,21 +395,24 @@ export default function ChatPage() {
     if (!res.ok) return
     const c = await res.json()
     setConversations((prev) => (prev.some((x) => x.id === c.id) ? prev : [c, ...prev]))
-    setCurrentId(c.id)
     setMessages([])
     setSidebarOpen(false)
+    navigate(`/${c.id}`)
   }
 
   const selectConversation = (id: number) => {
-    setCurrentId(id)
     setSidebarOpen(false)
+    navigate(`/${id}`)
   }
 
   const deleteConversation = async (e: React.MouseEvent, id: number) => {
     e.stopPropagation()
     const res = await fetchWithAuth(`/conversations/${id}`, { method: 'DELETE' })
     if (!res.ok) return
-    if (currentId === id) { setCurrentId(null); setMessages([]) }
+    if (currentId === id) {
+      setMessages([])
+      navigate('/', { replace: true })
+    }
     setConversations((prev) => prev.filter((c) => c.id !== id))
   }
 
@@ -430,7 +447,7 @@ export default function ChatPage() {
           return
         }
         if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Помилка запиту')
-        if (currentId === null) { setCurrentId(data.conversation_id); loadConversations() } else loadConversations()
+        if (currentId === null) { navigate(`/${data.conversation_id}`); loadConversations() } else loadConversations()
         setMessages((prev) => [...prev, { role: 'assistant', content: data.reply }])
         loadUsage()
       } else {
@@ -505,7 +522,7 @@ export default function ChatPage() {
 
             if (data.done) {
               const convId = data.conversation_id as number
-              if (sentConversationId === null) { setCurrentId(convId); loadConversations() }
+              if (sentConversationId === null) { navigate(`/${convId}`); loadConversations() }
               else loadConversations()
               loadUsage()
             }
