@@ -1,6 +1,7 @@
 import base64
 import os
 from pathlib import Path
+from typing import AsyncGenerator
 
 import requests
 from dotenv import load_dotenv
@@ -9,7 +10,7 @@ from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent
 from langchain_community.agent_toolkits.load_tools import load_tools
 from langchain_community.tools import DuckDuckGoSearchRun
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage, AIMessageChunk
 
 # Import pharmacy prices tool
 from tools.pharmacy_prices_tool import pharmacy_prices_lookup
@@ -227,3 +228,31 @@ def answer_query(
 
     result = agent.invoke({"messages": messages})
     return result["messages"][-1].content
+
+
+async def stream_answer_query(
+    query: str,
+    history,
+) -> AsyncGenerator[str, None]:
+    """
+    Stream an answer to a medical query, yielding text chunks as they arrive.
+    Image queries are not supported — use answer_query with image_base64 instead.
+    """
+    messages = _get_history_messages(history)
+    if not _is_medical_query(query, history=messages):
+        yield NON_MEDICAL_REPLY
+        return
+
+    messages.append(HumanMessage(content=query))
+
+    async for chunk, _ in agent.astream(
+        {"messages": messages},
+        stream_mode="messages",
+    ):
+        if (
+            isinstance(chunk, AIMessageChunk)
+            and isinstance(chunk.content, str)
+            and chunk.content
+            and not chunk.tool_call_chunks
+        ):
+            yield chunk.content

@@ -5,6 +5,7 @@ Images: Cloudinary.
 Run: uvicorn api:app --reload
 """
 import base64
+import json
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -13,12 +14,13 @@ from typing import Optional
 
 import cloudinary
 import cloudinary.uploader
+import httpx
 from fastapi import Cookie, FastAPI, HTTPException, UploadFile, File, Form, Depends, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi.responses import RedirectResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from chains import answer_query
+from chains import answer_query, stream_answer_query
 from db import (
     init_db,
     user_get_by_id,
@@ -416,6 +418,49 @@ def chat_ask(
     return ChatResponse(reply=reply, conversation_id=conv_id)
 
 
+@app.post("/chat/stream")
+async def chat_stream(
+    req: ChatRequest,
+    user_id: int = Depends(get_current_user_id),
+):
+    """Stream a text-only answer token by token via Server-Sent Events."""
+    limit_resp = _check_usage_limit(user_id)
+    if limit_resp is not None:
+        return limit_resp
+
+    conv_id = _ensure_conversation(req.conversation_id, user_id)
+    history_raw = messages_last_n_for_context(conv_id, n=CONTEXT_WINDOW_SIZE)
+    history = [{"role": m["role"], "content": m["content"]} for m in history_raw]
+
+    query_for_agent = req.message
+    if req.user_latitude is not None and req.user_longitude is not None:
+        query_for_agent = f"[Геолокація: {req.user_latitude}, {req.user_longitude}]\n{req.message}"
+
+    async def generate():
+        chunks: list[str] = []
+        try:
+            async for chunk in stream_answer_query(query=query_for_agent, history=history):
+                chunks.append(chunk)
+                yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+        reply_text = "".join(chunks)
+        if reply_text:
+            chat_usage_increment(user_id)
+            _maybe_update_conversation_title(conv_id, user_id, req.message)
+            message_add(conv_id, "user", req.message)
+            message_add(conv_id, "assistant", reply_text)
+
+        yield f"data: {json.dumps({'done': True, 'conversation_id': conv_id})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 def _ext_for_content_type(content_type: Optional[str]) -> str:
     if not content_type:
         return "jpg"
@@ -455,14 +500,20 @@ def get_message_image(
     message_id: int,
     user_id: int = Depends(get_current_user_id),
 ):
-    """Redirect to stored image URL (Cloudinary). Returns 404 if no image or not found."""
+    """Proxy stored image from Cloudinary. Returns 404 if no image or not found."""
     msg = message_get(message_id, conversation_id, user_id)
     if not msg or not msg.get("image_path"):
         raise HTTPException(status_code=404, detail="Image not found")
     image_path = msg["image_path"]
-    if image_path.startswith("http://") or image_path.startswith("https://"):
-        return RedirectResponse(url=image_path, status_code=302)
-    raise HTTPException(status_code=404, detail="Image not found")
+    if not (image_path.startswith("http://") or image_path.startswith("https://")):
+        raise HTTPException(status_code=404, detail="Image not found")
+    try:
+        r = httpx.get(image_path, timeout=10, follow_redirects=True)
+        r.raise_for_status()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch image: {e}")
+    content_type = r.headers.get("content-type", "image/jpeg")
+    return StreamingResponse(iter([r.content]), media_type=content_type)
 
 
 @app.post("/chat/find", response_model=ChatResponse)
@@ -499,7 +550,7 @@ async def chat_find(
     user_msg = message_add(conv_id, "user", q)
     message_id = user_msg["id"]
     ext = _ext_for_content_type(image.content_type)
-    public_id = f"conv_{conv_id}_msg_{message_id}.{ext}"
+    public_id = f"conv_{conv_id}_msg_{message_id}"
     image_url = _upload_image_to_cloudinary(body, public_id)
     message_update_image_path(message_id, conv_id, image_url)
     message_add(conv_id, "assistant", reply)

@@ -411,6 +411,7 @@ export default function ChatPage() {
       { role: 'user', content: userContent, ...(pendingImage && { imagePreview: pendingImage.preview }) },
     ])
     setInput('')
+    setPendingImage(null)
     if (textareaRef.current) { textareaRef.current.style.height = 'auto' }
     setLoading(true)
 
@@ -441,21 +442,79 @@ export default function ChatPage() {
           body.user_latitude = userLocation.lat
           body.user_longitude = userLocation.lng
         }
-        const res = await fetchWithAuth('/chat/ask', {
+
+        const sentConversationId = currentId
+        const res = await fetchWithAuth('/chat/stream', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         })
-        const data = await res.json().catch(() => ({}))
+
         if (res.status === 429) {
+          const data = await res.json().catch(() => ({}))
           setUsage((u) => ({ used: u?.limit ?? 5, limit: u?.limit ?? 5, resets_at: data.resets_at ?? '' }))
           setMessages((prev) => [...prev, { role: 'assistant', content: 'Денний ліміт запитів використано. Наступне оновлення — завтра о 00:00.' }])
           return
         }
-        if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Помилка запиту')
-        if (currentId === null) { setCurrentId(data.conversation_id); loadConversations() } else loadConversations()
-        setMessages((prev) => [...prev, { role: 'assistant', content: data.reply }])
-        loadUsage()
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}))
+          throw new Error(typeof data.detail === 'string' ? data.detail : 'Помилка запиту')
+        }
+        if (!res.body) throw new Error('No response body')
+
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        let hasStarted = false
+
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() ?? ''
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue
+            let data: Record<string, unknown>
+            try { data = JSON.parse(line.slice(6)) } catch { continue }
+
+            if (typeof data.chunk === 'string') {
+              if (!hasStarted) {
+                hasStarted = true
+                setMessages((prev) => [...prev, { role: 'assistant', content: '' }])
+                setLoading(false)
+              }
+              setMessages((prev) => {
+                const msgs = [...prev]
+                const last = msgs[msgs.length - 1]
+                msgs[msgs.length - 1] = { ...last, content: last.content + (data.chunk as string) }
+                return msgs
+              })
+            }
+
+            if (data.error) {
+              if (!hasStarted) {
+                hasStarted = true
+                setMessages((prev) => [...prev, { role: 'assistant', content: `Помилка: ${data.error}` }])
+                setLoading(false)
+              }
+            }
+
+            if (data.done) {
+              const convId = data.conversation_id as number
+              if (sentConversationId === null) { setCurrentId(convId); loadConversations() }
+              else loadConversations()
+              loadUsage()
+            }
+          }
+        }
+
+        if (!hasStarted) {
+          setMessages((prev) => [...prev, { role: 'assistant', content: 'Порожня відповідь від асистента.' }])
+        }
       }
     } catch (e) {
       setMessages((prev) => [
@@ -464,7 +523,6 @@ export default function ChatPage() {
       ])
     } finally {
       setLoading(false)
-      setPendingImage(null)
     }
   }
 
